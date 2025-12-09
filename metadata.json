@@ -1,0 +1,5 @@
+{
+  "name": "Backup LeadFlow Analytics",
+  "description": "A modern, high-performance dashboard to visualize Supabase lead management data. Features secure connection handling, interactive charts, and real-time data rendering.",
+  "requestFramePermissions": []
+}
