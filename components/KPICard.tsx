@@ -10,7 +10,7 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, subValue, icon, trend, 
       
       <div className="flex items-start justify-between mb-3 relative z-10">
         <div className={`p-2 rounded-lg bg-slate-900/50 border border-slate-700/50 ${colorClass}`}>
-           {React.cloneElement(icon as React.ReactElement, { className: "w-5 h-5" })}
+           {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<any>, { className: "w-5 h-5" }) : icon}
         </div>
         {trend && (
             <div className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full bg-slate-900/50 border border-slate-700/50

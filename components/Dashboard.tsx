@@ -239,18 +239,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     onRangeChange({ start, end, label });
   };
   
-  const handleYesterday = () => {
-      setIsCustomDateOpen(false);
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      // Definir start e end como o mesmo dia (ontem)
-      onRangeChange({ 
-          start: yesterday, 
-          end: yesterday, 
-          label: 'Ontem' 
-      });
-  };
-
   const handleCustomDateChange = (startStr: string, endStr: string) => {
       const start = startStr ? new Date(startStr) : currentRange.start;
       const end = endStr ? new Date(endStr) : currentRange.end;
@@ -310,17 +298,6 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="flex flex-wrap items-center gap-3">
                 {/* Date Presets */}
                 <div className="flex flex-wrap bg-slate-900 rounded-lg p-1 border border-slate-800">
-                    <button 
-                        onClick={handleYesterday}
-                        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                            currentRange.label === 'Ontem' 
-                            ? 'bg-slate-700 text-white shadow' 
-                            : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                    >
-                        Ontem
-                    </button>
-
                     {['7 Dias', '15 Dias', '30 Dias'].map((l) => {
                         const days = l === '7 Dias' ? 7 : l === '15 Dias' ? 15 : 30;
                         const isActive = currentRange.label === l;
@@ -449,7 +426,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             {/* SECTION 2: PÓS-VENDA */}
             <h3 className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-4 pl-1 border-l-4 border-amber-500 flex items-center gap-2">
                 <Briefcase className="w-4 h-4" />
-                Pós-Venda (Estoque Líquido)
+                Pós-Venda
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <KPICard 
