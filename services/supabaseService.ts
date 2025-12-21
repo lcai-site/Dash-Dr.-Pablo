@@ -1,17 +1,28 @@
 import { SupabaseConfig, DashboardMetric, DateRange, FinancialSettings, Investment } from '../types';
 
+const handleSupabaseError = async (response: Response, context: string) => {
+  if (!response.ok) {
+    let errorDetail = "";
+    try {
+      const errorJson = await response.json();
+      errorDetail = errorJson.message || errorJson.hint || errorJson.details || response.statusText;
+      // Se for erro de RLS, o Supabase costuma enviar mensagens específicas no 'details' ou 'message'
+    } catch (e) {
+      errorDetail = response.statusText || "Erro de rede ou CORS";
+    }
+    throw new Error(`${context}: ${errorDetail}`);
+  }
+};
+
 export const fetchDashboardMetrics = async (
   config: SupabaseConfig, 
   range: DateRange
 ): Promise<DashboardMetric[]> => {
   const baseUrl = config.url.replace(/\/$/, "");
-  
-  // Format dates for query YYYY-MM-DD
   const startDate = range.start.toISOString().split('T')[0];
   const endDate = range.end.toISOString().split('T')[0];
 
-  // Query 'dashboard_diario' view
-  const endpoint = `${baseUrl}/rest/v1/dashboard_diario?select=*&data_referencia=gte.${startDate}&data_referencia=lte.${endDate}&order=data_referencia.asc`;
+  const endpoint = `${baseUrl}/rest/v1/leads?select=*&data=gte.${startDate}&data=lte.${endDate}&order=data.asc`;
 
   try {
     const response = await fetch(endpoint, {
@@ -23,40 +34,43 @@ export const fetchDashboardMetrics = async (
       }
     });
 
-    if (!response.ok) {
-        throw new Error(`Failed to fetch metrics: ${response.statusText}`);
-    }
+    await handleSupabaseError(response, "Erro na tabela 'leads'");
 
     const data: any[] = await response.json();
 
-    // DYNAMIC MAPPING:
-    // Instead of explicitly listing fields (which hides new columns),
-    // we iterate over all keys returned by the database.
     return data.map(record => {
         const formatted: any = {};
-        
         Object.keys(record).forEach(key => {
-            if (key === 'data_referencia') {
-                formatted[key] = record[key];
-            } else if (key === 'id') {
-                formatted[key] = record[key];
+            const rawVal = record[key];
+            
+            if (key === 'data' || key === 'id' || key === 'telefone') {
+                formatted[key] = rawVal;
             } else {
-                // Try to convert everything else to number
-                const val = Number(record[key]);
-                formatted[key] = isNaN(val) ? 0 : val;
+                if (typeof rawVal === 'string') {
+                    const normalized = rawVal.toLowerCase().trim();
+                    if (normalized === 'sim' || normalized === 's' || normalized === 'x') {
+                        formatted[key] = 1;
+                    } else {
+                        const parsed = parseFloat(rawVal);
+                        formatted[key] = isNaN(parsed) ? 0 : parsed;
+                    }
+                } else if (typeof rawVal === 'number') {
+                    formatted[key] = rawVal;
+                } else if (rawVal === null || rawVal === undefined) {
+                    formatted[key] = 0;
+                } else {
+                    formatted[key] = 0;
+                }
             }
         });
-
         return formatted as DashboardMetric;
     });
 
-  } catch (error) {
-    console.error("Supabase Metrics Fetch Error:", error);
+  } catch (error: any) {
+    console.error("Fetch Metrics Detail:", error);
     throw error;
   }
 };
-
-// --- FINANCIAL SETTINGS SERVICES ---
 
 export const fetchFinancialSettings = async (config: SupabaseConfig): Promise<FinancialSettings> => {
   const baseUrl = config.url.replace(/\/$/, "");
@@ -77,13 +91,12 @@ export const fetchFinancialSettings = async (config: SupabaseConfig): Promise<Fi
         if (data && data.length > 0) {
             return {
                 id: data[0].id,
-                average_ticket: Number(data[0].average_ticket)
+                average_ticket: Number(data[0].average_ticket) || 0
             };
         }
     }
     return { average_ticket: 0 };
   } catch (error) {
-    console.warn("Could not fetch financial settings, using defaults.", error);
     return { average_ticket: 0 };
   }
 };
@@ -91,9 +104,6 @@ export const fetchFinancialSettings = async (config: SupabaseConfig): Promise<Fi
 export const saveFinancialSettings = async (config: SupabaseConfig, settings: FinancialSettings): Promise<void> => {
     const baseUrl = config.url.replace(/\/$/, "");
     const endpoint = `${baseUrl}/rest/v1/financial_settings`;
-
-    // 1. Resolve ID: If we don't have an ID in the settings object, try to fetch it from the DB first.
-    // This handles cases where the initial fetch might have failed or the state is out of sync.
     let targetId = settings.id;
 
     if (!targetId) {
@@ -108,28 +118,14 @@ export const saveFinancialSettings = async (config: SupabaseConfig, settings: Fi
         });
         if (checkResponse.ok) {
           const checkData = await checkResponse.json();
-          if (checkData.length > 0) {
-            targetId = checkData[0].id;
-          }
+          if (checkData.length > 0) targetId = checkData[0].id;
         }
-      } catch (e) {
-        // Ignore check error, fallback to POST
-      }
+      } catch (e) {}
     }
 
-    // 2. Determine Method
-    let method = 'POST';
-    let url = endpoint;
-    
-    // We only care about Average Ticket
-    const payload: any = {
-        average_ticket: settings.average_ticket
-    };
-
-    if (targetId) {
-        method = 'PATCH';
-        url = `${endpoint}?id=eq.${targetId}`;
-    }
+    const method = targetId ? 'PATCH' : 'POST';
+    const url = targetId ? `${endpoint}?id=eq.${targetId}` : endpoint;
+    const payload = { average_ticket: settings.average_ticket };
 
     try {
         const response = await fetch(url, {
@@ -142,22 +138,15 @@ export const saveFinancialSettings = async (config: SupabaseConfig, settings: Fi
             },
             body: JSON.stringify(payload)
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`DB Error: ${errorText}`);
-        }
+        await handleSupabaseError(response, "Erro ao salvar ticket");
     } catch (error) {
-        console.error("Save Settings Error:", error);
         throw error;
     }
 };
 
-// --- INVESTMENT HISTORY SERVICES ---
-
 export const fetchInvestments = async (config: SupabaseConfig): Promise<Investment[]> => {
   const baseUrl = config.url.replace(/\/$/, "");
-  const endpoint = `${baseUrl}/rest/v1/marketing_investments?select=*&order=start_date.desc`;
+  const endpoint = `${baseUrl}/rest/v1/investimentos?select=*&order=data_inicio.desc`;
 
   try {
     const response = await fetch(endpoint, {
@@ -174,63 +163,69 @@ export const fetchInvestments = async (config: SupabaseConfig): Promise<Investme
     const data = await response.json();
     return data.map((item: any) => ({
       id: item.id,
-      start_date: item.start_date,
-      end_date: item.end_date,
-      amount: Number(item.amount)
+      data_inicio: item.data_inicio,
+      data_fim: item.data_fim,
+      valor: Number(item.valor) || 0,
+      plataforma: item.plataforma || 'N/A'
     }));
   } catch (error) {
-    console.error("Error fetching investments:", error);
     return [];
   }
 };
 
 export const addInvestment = async (config: SupabaseConfig, investment: Omit<Investment, 'id'>): Promise<void> => {
   const baseUrl = config.url.replace(/\/$/, "");
-  const endpoint = `${baseUrl}/rest/v1/marketing_investments`;
+  const endpoint = `${baseUrl}/rest/v1/investimentos`;
 
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'apikey': config.key,
-        'Authorization': `Bearer ${config.key}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=minimal'
-      },
-      body: JSON.stringify(investment)
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`DB Error: ${errorText}`);
-    }
-  } catch (error) {
-    console.error("Error adding investment:", error);
-    throw error;
-  }
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'apikey': config.key,
+      'Authorization': `Bearer ${config.key}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal'
+    },
+    body: JSON.stringify(investment)
+  });
+  await handleSupabaseError(response, "Erro ao salvar investimento");
 };
 
-export const deleteInvestment = async (config: SupabaseConfig, id: number): Promise<void> => {
+export const updateInvestment = async (config: SupabaseConfig, id: string | number, investment: Omit<Investment, 'id'>): Promise<void> => {
   const baseUrl = config.url.replace(/\/$/, "");
-  const endpoint = `${baseUrl}/rest/v1/marketing_investments?id=eq.${id}`;
+  const endpoint = `${baseUrl}/rest/v1/investimentos?id=eq.${id}`;
 
-  try {
-    const response = await fetch(endpoint, {
-      method: 'DELETE',
-      headers: {
-        'apikey': config.key,
-        'Authorization': `Bearer ${config.key}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=minimal'
-      }
-    });
+  const response = await fetch(endpoint, {
+    method: 'PATCH',
+    headers: {
+      'apikey': config.key,
+      'Authorization': `Bearer ${config.key}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal'
+    },
+    body: JSON.stringify(investment)
+  });
+  await handleSupabaseError(response, "Erro ao atualizar investimento");
+};
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`DB Error: ${errorText}`);
+export const deleteInvestment = async (config: SupabaseConfig, id: string | number): Promise<void> => {
+  const baseUrl = config.url.replace(/\/$/, "");
+  const endpoint = `${baseUrl}/rest/v1/investimentos?id=eq.${id}`;
+  
+  const response = await fetch(endpoint, {
+    method: 'DELETE',
+    headers: {
+      'apikey': config.key,
+      'Authorization': `Bearer ${config.key}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation' // Importante para verificar se a deleção afetou linhas
     }
-  } catch (error) {
-    console.error("Error deleting investment:", error);
-    throw error;
+  });
+
+  await handleSupabaseError(response, "Erro ao remover registro");
+
+  // Se o retorno for um array vazio, significa que nada foi deletado (provavelmente RLS)
+  const data = await response.json();
+  if (Array.isArray(data) && data.length === 0) {
+    throw new Error("O registro não foi excluído. Verifique se você tem permissão de DELETE na tabela 'investimentos' do Supabase.");
   }
 };

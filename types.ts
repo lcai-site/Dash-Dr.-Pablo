@@ -1,20 +1,24 @@
 import React from 'react';
 
-// Represents a row in the 'dashboard_diario' view
 export interface DashboardMetric {
-  data_referencia: string;
-  taxa_conversao_percentual: number;
-  aguardando_analise: number;
+  data: string; // Coluna de data no lead
+  telefone: string | number; 
   contratos_fechados: number;
+  n3_reuniao_feita: number;
+  
+  // Pós-Venda
   clientes_pendentes_total: number;
+  onboard_realizado: number;
   aguardando_agendamento: number;
   aguardando_documentacao: number;
+  documentacao_completa: number;
   
-  // New columns for precise calculation
-  total_leads_dia?: number;
-  total_contratos_dia?: number;
+  // Jurídico
+  producao_de_inicial: number;
+  revisao_de_inicial: number;
+  processos_protocolados: number;
+  taxa_aproveitamento: number;
 
-  // Flexible to allow other number columns if the view expands
   [key: string]: string | number | undefined;
 }
 
@@ -32,14 +36,14 @@ export interface DateRange {
 export interface FinancialSettings {
   id?: number;
   average_ticket: number;
-  // Legacy or unused fields can be ignored, focusing on ticket
 }
 
 export interface Investment {
-  id: number;
-  start_date: string; // YYYY-MM-DD
-  end_date: string;   // YYYY-MM-DD
-  amount: number;
+  id: string | number;
+  data_inicio: string; 
+  data_fim: string;   
+  valor: number;
+  plataforma: string;
 }
 
 export interface KPICardProps {
@@ -50,4 +54,14 @@ export interface KPICardProps {
   trend?: 'up' | 'down' | 'neutral';
   trendValue?: string;
   colorClass: string;
+}
+
+export interface SettingsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  currentSettings: FinancialSettings;
+  investments: Investment[];
+  onSaveSettings: (settings: FinancialSettings) => Promise<void>;
+  onRefreshData: () => void;
+  config: SupabaseConfig; // Adicionado para garantir que o modal use as mesmas chaves do App
 }
