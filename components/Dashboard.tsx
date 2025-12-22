@@ -65,18 +65,17 @@ const Dashboard: React.FC<DashboardProps> = ({
     const com_contratos = sumValues(['contratos_fechados', 'n5_contrato_assinado', 'vendas', 'contratos']);
     const com_taxa = com_leads > 0 ? ((com_contratos / com_leads) * 100).toFixed(2) : '0.00';
 
-    // --- JURÍDICO (REFORMULADO) ---
+    // --- JURÍDICO ---
     const jur_producao = sumValues(['producao_de_inicial', 'juridico_producao', 'peticoes', 'elaboracao_inicial']);
     const jur_revisao = sumValues(['revisao_de_inicial', 'juridico_revisao', 'revisoes', 'conferencia_inicial']);
     const jur_protocolos = sumValues(['processos_protocolados', 'protocolos', 'distribuidos', 'juridico_protocolados']);
     
-    // Aproveitamento do Período (Eficiência de conversão da produção atual)
     const jur_taxa_calc = (jur_producao + jur_revisao) > 0 
         ? ((jur_protocolos / (jur_producao + jur_revisao)) * 100)
         : (jur_protocolos > 0 ? 100.00 : 0.00);
     
     const jur_taxa_periodo = Math.min(jur_taxa_calc, 100).toFixed(2);
-    const jur_vazao_total = jur_taxa_calc.toFixed(2); // Aqui pode ser > 100%
+    const jur_vazao_total = jur_taxa_calc.toFixed(2);
 
     // --- PÓS-VENDA ---
     const pv_pendentes = sumValues(['clientes_pendentes_total', 'pendentes_pos_venda', 'pos_venda_pendente']);
@@ -85,18 +84,15 @@ const Dashboard: React.FC<DashboardProps> = ({
     const pv_doc_aguard = sumValues(['aguardando_documentacao', 'n4_aguardando_documentacao', 'pendente_documentos']);
     const pv_doc_comp = sumValues(['documentacao_completa', 'docs_ok', 'documentos_recebidos']);
 
-    // --- SUPORTE ---
+    // --- SUPORTE / FINANCEIRO ---
     const sup_aguard = sumValues(['suporte_aguardando_atendimento', 'aguardando_atendimento', 'suporte_pendente', 'atendimentos_suporte_fila', 'suporte_fila', 'fila_suporte', 'suporte_atendimento']);
     const sup_final = sumValues(['suporte_atendimentos_finalizados', 'atendimentos_finalizados', 'suporte_finalizados', 'atendimentos_concluidos', 'suporte_concluido', 'finalizados_suporte']);
-
-    // --- FINANCEIRO ---
     const fin_aguard = sumValues(['financeiro_aguardando_atendimento', 'aguardando_atendimento_financeiro', 'financeiro_fila', 'financeiro_pendente', 'fila_financeiro', 'financeiro_atendimento']);
     const fin_acordo = sumValues(['contato_inicial_acordo_pendente', 'acordo_pendente', 'acordos_fechados', 'acordos', 'acordos_financeiro', 'financeiro_acordos']);
 
-    // --- GESTÃO ---
-    const calculateTotalDailyCost = (targetDate: Date) => {
-      const tDateStr = toLocalISO(targetDate);
-      const activeInvs = investments.filter(i => tDateStr >= i.data_inicio && tDateStr <= i.data_fim);
+    // --- GESTÃO (AJUSTADO PARA ABRANGER UNICAMENTE OS DIAS COM LEADS) ---
+    const calculateTotalDailyCost = (targetDateStr: string) => {
+      const activeInvs = investments.filter(i => targetDateStr >= i.data_inicio && targetDateStr <= i.data_fim);
       return activeInvs.reduce((total, inv) => {
         const start = new Date(inv.data_inicio + 'T12:00:00');
         const end = new Date(inv.data_fim + 'T12:00:00');
@@ -105,12 +101,17 @@ const Dashboard: React.FC<DashboardProps> = ({
       }, 0);
     };
 
+    // Identificar dias únicos onde houveram registros no período filtrado
+    const uniqueActiveDays = new Set<string>();
+    filteredMetrics.forEach(m => {
+        const d = (m as any)._parsedDate;
+        if (d) uniqueActiveDays.add(toLocalISO(d));
+    });
+
     let totalCost = 0;
-    let cursor = new Date(rangeStart);
-    while (cursor <= rangeEnd) {
-      totalCost += calculateTotalDailyCost(cursor);
-      cursor.setDate(cursor.getDate() + 1);
-    }
+    uniqueActiveDays.forEach(dateStr => {
+        totalCost += calculateTotalDailyCost(dateStr);
+    });
 
     const gestao_cac = com_contratos > 0 ? totalCost / com_contratos : 0;
     const gestao_custo_prot = jur_protocolos > 0 ? totalCost / jur_protocolos : 0;
@@ -241,7 +242,6 @@ const Dashboard: React.FC<DashboardProps> = ({
         activeTab === 'strategic' ? (
           <div className="space-y-12 animate-in fade-in duration-500">
               
-              {/* COMERCIAL */}
               <section>
                   <div className="flex items-center gap-3 mb-6">
                       <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><Users className="w-4 h-4 text-blue-500" /> COMERCIAL</h3>
@@ -255,7 +255,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
               </section>
 
-              {/* JURÍDICO (REFORMULADO) */}
               <section>
                   <div className="flex items-center gap-3 mb-6">
                       <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><Briefcase className="w-4 h-4 text-amber-500" /> JURÍDICO</h3>
@@ -264,24 +263,11 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                       <KPICard title="PRODUÇÃO TOTAL" value={stats.juridico.producao} icon={<Clock />} colorClass="text-amber-400" subValue="Produção + Revisão" />
                       <KPICard title="PROTOCOLADOS" value={stats.juridico.protocolos} icon={<Archive />} colorClass="text-emerald-400" />
-                      <KPICard 
-                          title="EFICIÊNCIA PERÍODO" 
-                          value={`${stats.juridico.taxaPeriodo}%`} 
-                          icon={<TrendingUp />} 
-                          colorClass="text-blue-400"
-                          subValue="Conversão do trabalho atual"
-                      />
-                      <KPICard 
-                          title="VAZÃO DE ESTOQUE" 
-                          value={`${stats.juridico.vazaoTotal}%`} 
-                          icon={<Target />} 
-                          colorClass={Number(stats.juridico.vazaoTotal) > 100 ? "text-emerald-400" : "text-purple-400"}
-                          subValue={Number(stats.juridico.vazaoTotal) > 100 ? "Limpando Backlog" : "Vazão vs Produção"}
-                      />
+                      <KPICard title="EFICIÊNCIA PERÍODO" value={`${stats.juridico.taxaPeriodo}%`} icon={<TrendingUp />} colorClass="text-blue-400" subValue="Conversão do trabalho atual" />
+                      <KPICard title="VAZÃO DE ESTOQUE" value={`${stats.juridico.vazaoTotal}%`} icon={<Target />} colorClass={Number(stats.juridico.vazaoTotal) > 100 ? "text-emerald-400" : "text-purple-400"} subValue={Number(stats.juridico.vazaoTotal) > 100 ? "Limpando Backlog" : "Vazão vs Produção"} />
                   </div>
               </section>
 
-              {/* PÓS-VENDA */}
               <section>
                   <div className="flex items-center gap-3 mb-6">
                       <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-indigo-500" /> PÓS-VENDA</h3>
@@ -296,45 +282,33 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
               </section>
 
-              {/* GESTÃO & INVESTIMENTOS */}
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
                   <div className="xl:col-span-2 space-y-8">
                       <section className="relative">
                           <div className="flex items-center justify-between mb-6">
-                              <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                                  <DollarSign className="w-4 h-4 text-emerald-500" /> GESTÃO E CUSTOS
-                              </h3>
+                              <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><DollarSign className="w-4 h-4 text-emerald-500" /> GESTÃO E CUSTOS</h3>
                               {isGestaoUnlocked ? (
-                                <button onClick={() => setIsGestaoUnlocked(false)} className="text-[9px] font-black text-slate-500 hover:text-white border border-slate-800 px-3 py-1.5 rounded-lg uppercase tracking-widest transition-all flex items-center gap-2">
-                                    <EyeOff className="w-3 h-3" /> Ocultar Dados
-                                </button>
+                                <button onClick={() => setIsGestaoUnlocked(false)} className="text-[9px] font-black text-slate-500 hover:text-white border border-slate-800 px-3 py-1.5 rounded-lg uppercase tracking-widest transition-all flex items-center gap-2"><EyeOff className="w-3 h-3" /> Ocultar Dados</button>
                               ) : (
-                                <button onClick={handleUnlock} className="text-[9px] font-black text-emerald-500 hover:text-white border border-emerald-500/20 bg-emerald-500/5 px-3 py-1.5 rounded-lg uppercase tracking-widest transition-all flex items-center gap-2 shadow-lg hover:bg-emerald-500/10">
-                                    <Lock className="w-3 h-3" /> Desbloquear Dados Sensíveis
-                                </button>
+                                <button onClick={handleUnlock} className="text-[9px] font-black text-emerald-500 hover:text-white border border-emerald-500/20 bg-emerald-500/5 px-3 py-1.5 rounded-lg uppercase tracking-widest transition-all flex items-center gap-2 shadow-lg hover:bg-emerald-500/10"><Lock className="w-3 h-3" /> Desbloquear Dados Sensíveis</button>
                               )}
                           </div>
 
                           <div className="relative">
                             <div className={`grid grid-cols-1 md:grid-cols-3 gap-6 transition-all duration-500 ${!isGestaoUnlocked ? 'opacity-40 grayscale blur-sm pointer-events-none' : 'opacity-100 grayscale-0 blur-0'}`}>
-                                <KPICard title="INVESTIMENTO TOTAL" value={isGestaoUnlocked ? `R$ ${stats.gestao.totalCost.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` : "R$ •••••••"} subValue="Rateio no período" icon={<DollarSign />} colorClass="text-slate-200" />
-                                <KPICard title="CAC" value={isGestaoUnlocked ? `R$ ${stats.gestao.cac.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` : "R$ •••••••"} subValue="Custo/Contrato" icon={<Users />} colorClass="text-emerald-400" />
+                                <KPICard title="INVESTIMENTO TOTAL" value={isGestaoUnlocked ? `R$ ${stats.gestao.totalCost.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` : "R$ •••••••"} subValue="Apenas dias com dados" icon={<DollarSign />} colorClass="text-slate-200" />
+                                <KPICard title="CAC" value={isGestaoUnlocked ? `R$ ${stats.gestao.cac.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` : "R$ •••••••"} subValue="Custo/Contrato no período" icon={<Users />} colorClass="text-emerald-400" />
                                 <KPICard title="CUSTO POR PROTOCOLO" value={isGestaoUnlocked ? `R$ ${stats.gestao.custoProt.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` : "R$ •••••••"} icon={<Archive />} colorClass="text-blue-400" />
                             </div>
-                            
                             {!isGestaoUnlocked && (
                               <div className="absolute inset-0 flex items-center justify-center z-20">
                                  <div className="bg-slate-900/90 border border-emerald-500/30 p-6 rounded-2xl shadow-2xl flex flex-col items-center text-center gap-4 max-w-xs backdrop-blur-md">
-                                    <div className="p-3 bg-emerald-500/10 rounded-full">
-                                      <ShieldAlert className="w-8 h-8 text-emerald-500" />
-                                    </div>
+                                    <div className="p-3 bg-emerald-500/10 rounded-full"><ShieldAlert className="w-8 h-8 text-emerald-500" /></div>
                                     <div className="space-y-1">
                                       <h4 className="text-white font-bold text-sm uppercase tracking-tighter">Área Restrita</h4>
                                       <p className="text-[10px] text-slate-400 font-medium leading-relaxed">Os dados financeiros e de custos estão protegidos por PIN para privacidade da gestão.</p>
                                     </div>
-                                    <button onClick={handleUnlock} className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black uppercase rounded-xl transition-all shadow-lg shadow-emerald-900/40">
-                                      Digitar PIN
-                                    </button>
+                                    <button onClick={handleUnlock} className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black uppercase rounded-xl transition-all shadow-lg shadow-emerald-900/40">Digitar PIN</button>
                                  </div>
                               </div>
                             )}
@@ -342,9 +316,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                       </section>
 
                       <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 shadow-2xl">
-                          <h2 className="text-white text-lg font-black mb-8 flex items-center gap-2 uppercase tracking-tighter">
-                              <BarChart3 className="w-5 h-5 text-emerald-500" /> Evolução de Volume
-                          </h2>
+                          <h2 className="text-white text-lg font-black mb-8 flex items-center gap-2 uppercase tracking-tighter"><BarChart3 className="w-5 h-5 text-emerald-500" /> Evolução de Volume</h2>
                           <div className="h-[280px]">
                               <ResponsiveContainer width="100%" height="100%">
                                   <AreaChart data={chartData}>
@@ -362,44 +334,24 @@ const Dashboard: React.FC<DashboardProps> = ({
 
                   <div className="space-y-6">
                       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-                          <div className="absolute top-0 right-0 p-4 opacity-5">
-                             <Headphones className="w-12 h-12 text-blue-400" />
-                          </div>
+                          <div className="absolute top-0 right-0 p-4 opacity-5"><Headphones className="w-12 h-12 text-blue-400" /></div>
                           <h3 className="text-slate-500 text-[9px] font-black uppercase mb-4 tracking-widest flex items-center gap-2"><Headphones className="w-3 h-3 text-blue-400" /> SUPORTE</h3>
                           <div className="grid grid-cols-2 gap-3">
-                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800">
-                                  <div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Pendente</div>
-                                  <div className="text-2xl font-black text-white">{stats.supFin.supAguard}</div>
-                              </div>
-                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800">
-                                  <div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Finalizados</div>
-                                  <div className="text-2xl font-black text-emerald-500">{stats.supFin.supFinal}</div>
-                              </div>
+                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800"><div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Pendente</div><div className="text-2xl font-black text-white">{stats.supFin.supAguard}</div></div>
+                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800"><div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Finalizados</div><div className="text-2xl font-black text-emerald-500">{stats.supFin.supFinal}</div></div>
                           </div>
                       </div>
-
                       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-                          <div className="absolute top-0 right-0 p-4 opacity-5">
-                             <Landmark className="w-12 h-12 text-orange-400" />
-                          </div>
+                          <div className="absolute top-0 right-0 p-4 opacity-5"><Landmark className="w-12 h-12 text-orange-400" /></div>
                           <h3 className="text-slate-500 text-[9px] font-black uppercase mb-4 tracking-widest flex items-center gap-2"><Landmark className="w-3 h-3 text-orange-400" /> FINANCEIRO</h3>
                           <div className="grid grid-cols-2 gap-3">
-                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800">
-                                  <div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Fila</div>
-                                  <div className="text-2xl font-black text-white">{stats.supFin.finAguard}</div>
-                              </div>
-                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800">
-                                  <div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Acordos</div>
-                                  <div className="text-2xl font-black text-orange-400">{stats.supFin.finAcordo}</div>
-                              </div>
+                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800"><div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Fila</div><div className="text-2xl font-black text-white">{stats.supFin.finAguard}</div></div>
+                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800"><div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Acordos</div><div className="text-2xl font-black text-orange-400">{stats.supFin.finAcordo}</div></div>
                           </div>
                       </div>
-
                       <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl flex items-start gap-3">
                           <Info className="w-5 h-5 text-emerald-500 flex-shrink-0" />
-                          <p className="text-[9px] text-slate-400 leading-relaxed uppercase font-bold tracking-tight">
-                            Nota: Vazão Jurídica superior a 100% indica que a equipe está protocolando processos acumulados de períodos anteriores.
-                          </p>
+                          <p className="text-[9px] text-slate-400 leading-relaxed uppercase font-bold tracking-tight">Nota: O investimento é rateado apenas para os dias que possuem dados de leads no sistema, garantindo um CAC fiel ao período gerado.</p>
                       </div>
                   </div>
               </div>
@@ -409,20 +361,14 @@ const Dashboard: React.FC<DashboardProps> = ({
               {stats.dynamicStats.length > 0 ? (
                 stats.dynamicStats.map((item) => (
                     <div key={item.key} className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex justify-between items-center group hover:border-emerald-500 transition-all">
-                        <div>
-                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 group-hover:text-emerald-500">{item.label}</div>
-                            <div className="text-2xl font-black text-white">{item.total}</div>
-                        </div>
-                        <div className="text-right">
-                            <div className="text-[9px] font-bold text-slate-700 uppercase">Média</div>
-                            <div className="text-xs font-black text-emerald-500">{item.avg}</div>
-                        </div>
+                        <div><div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 group-hover:text-emerald-500">{item.label}</div><div className="text-2xl font-black text-white">{item.total}</div></div>
+                        <div className="text-right"><div className="text-[9px] font-bold text-slate-700 uppercase">Média</div><div className="text-xs font-black text-emerald-500">{item.avg}</div></div>
                     </div>
                 ))
               ) : (
                 <div className="col-span-full py-20 text-center bg-slate-900/50 border border-dashed border-slate-800 rounded-3xl">
                    <AlertCircle className="w-8 h-8 text-slate-700 mx-auto mb-3" />
-                   <p className="text-slate-500 font-bold uppercase text-xs tracking-widest">Nenhuma coluna numérica detectada para exibição dinâmica.</p>
+                   <p className="text-slate-500 font-bold uppercase text-xs tracking-widest">Nenhuma coluna numérica detectada.</p>
                 </div>
               )}
           </div>
