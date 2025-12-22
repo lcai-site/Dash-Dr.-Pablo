@@ -3,7 +3,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
 import { 
-  Target, Users, FileCheck, RefreshCw, Settings, Calendar, DollarSign, PieChart, Clock, CheckCircle, Loader2, BarChart3, DatabaseZap, Search, ChevronDown, Briefcase, ShieldCheck, TrendingUp, Filter, Headphones, Landmark, Archive, FileText, Lock, Unlock
+  Target, Users, FileCheck, RefreshCw, Settings, Calendar, DollarSign, Clock, CheckCircle, Loader2, BarChart3, Briefcase, ShieldCheck, TrendingUp, Filter, Headphones, Landmark, Archive, FileText, Lock, Unlock, AlertCircle, X, ChevronRight, Info, EyeOff, ShieldAlert
 } from 'lucide-react';
 import { DashboardMetric, DateRange, FinancialSettings, Investment } from '../types';
 import KPICard from './KPICard';
@@ -33,18 +33,56 @@ const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'strategic' | 'full'>('strategic');
   const [isGestaoUnlocked, setIsGestaoUnlocked] = useState(false);
-  const [pinError, setPinError] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const stats = useMemo(() => {
-    if (!metrics) return null;
+    if (!metrics || metrics.length === 0) return null;
 
-    const startDateStr = toLocalISO(currentRange.start);
-    const endDateStr = toLocalISO(currentRange.end);
-    const filteredMetrics = metrics.filter(m => m.data >= startDateStr && m.data <= endDateStr);
+    const filteredMetrics = metrics.filter(m => {
+        const d = (m as any)._parsedDate;
+        if (!d) return false;
+        return d >= currentRange.start && d <= currentRange.end;
+    });
 
-    const sumKey = (key: string): number => filteredMetrics.reduce((acc, curr) => acc + (Number(curr[key]) || 0), 0);
+    const countLeadsWithAny = (keys: string[]): number => {
+        return filteredMetrics.filter(m => keys.some(k => Number(m[k]) > 0)).length;
+    };
 
-    // Cálculos de Investimento Real (Baseado no que você preenche na 'planilha' de investimentos)
+    const sumValues = (key: string): number => {
+        return filteredMetrics.reduce((acc, curr) => acc + (Number(curr[key]) || 0), 0);
+    };
+
+    // --- COMERCIAL ---
+    const com_leads = filteredMetrics.length;
+    const com_analise = countLeadsWithAny(['aguardando_analise']);
+    const com_followups = sumValues('followups_realizados');
+    const com_contratos = countLeadsWithAny(['contratos_fechados', 'n5_contrato_assinado']);
+    const com_taxa = com_leads > 0 ? ((com_contratos / com_leads) * 100).toFixed(2) : '0.00';
+
+    // --- PÓS-VENDA ---
+    const pv_pendentes = countLeadsWithAny(['clientes_pendentes_total']);
+    const pv_onboard = countLeadsWithAny(['onboard_realizado']);
+    const pv_agendamento = countLeadsWithAny(['aguardando_agendamento', 'n2_aguardando_agendamento']);
+    const pv_doc_aguard = countLeadsWithAny(['aguardando_documentacao', 'n4_aguardando_documentacao']);
+    const pv_doc_comp = countLeadsWithAny(['documentacao_completa']);
+
+    // --- JURÍDICO ---
+    const jur_producao = countLeadsWithAny(['producao_de_inicial']);
+    const jur_revisao = countLeadsWithAny(['revisao_de_inicial']);
+    const jur_protocolos = countLeadsWithAny(['processos_protocolados']);
+    
+    const volume_trabalho_jur = jur_producao + jur_revisao;
+    const jur_taxa = volume_trabalho_jur > 0 
+        ? ((jur_protocolos / volume_trabalho_jur) * 100).toFixed(2) 
+        : (jur_protocolos > 0 ? "100.00" : "0.00");
+
+    // --- SUPORTE & FINANCEIRO ---
+    const sup_aguard = countLeadsWithAny(['aguardando_atendimento']);
+    const sup_final = sumValues('atendimentos_finalizados');
+    const fin_aguard = countLeadsWithAny(['aguardando_atendimento_financeiro']);
+    const fin_acordo = countLeadsWithAny(['contato_inicial_acordo_pendente']);
+
+    // --- GESTÃO ---
     const calculateTotalDailyCost = (targetDate: Date) => {
       const tDateStr = toLocalISO(targetDate);
       const activeInvs = investments.filter(i => tDateStr >= i.data_inicio && tDateStr <= i.data_fim);
@@ -63,83 +101,41 @@ const Dashboard: React.FC<DashboardProps> = ({
       cursor.setDate(cursor.getDate() + 1);
     }
 
-    // 1. COMERCIAL
-    const com_leads = filteredMetrics.length;
-    const com_analise = sumKey('aguardando_analise');
-    const com_followups = sumKey('followups_realizados');
-    const com_contratos = sumKey('contratos_fechados');
-    const com_taxa = com_leads > 0 ? ((com_contratos / com_leads) * 100).toFixed(2) : '0';
-
-    // 2. PÓS-VENDA
-    const pv_pendentes = sumKey('clientes_pendentes_total');
-    const pv_onboard = sumKey('onboard_realizado');
-    const pv_agendamento = sumKey('aguardando_agendamento');
-    const pv_doc_aguard = sumKey('aguardando_documentacao');
-    const pv_doc_comp = sumKey('documentacao_completa');
-
-    // 3. JURÍDICO
-    const jur_producao = sumKey('producao_de_inicial');
-    const jur_revisao = sumKey('revisao_de_inicial');
-    const jur_protocolos = sumKey('processos_protocolados');
-    const jur_taxa = com_contratos > 0 ? ((jur_protocolos / com_contratos) * 100).toFixed(2) : '0';
-
-    // 4. GESTÃO (Dados Estratégicos do Cliente)
     const gestao_cac = com_contratos > 0 ? totalCost / com_contratos : 0;
     const gestao_custo_prot = jur_protocolos > 0 ? totalCost / jur_protocolos : 0;
-    const gestao_estoque = jur_protocolos - sumKey('arquivados');
-
-    // INDICADORES MENORES
-    const small_com_n5 = sumKey('n5_contrato_assinado');
-    const small_pv_n1 = sumKey('n1_onboard_pendente');
-    const small_pv_n2 = sumKey('n2_aguardando_agendamento');
-    const small_pv_n3m = sumKey('n3_reuniao_marcada');
-    const small_pv_n3f = sumKey('n3_reuniao_feita');
-    const small_pv_n4 = sumKey('n4_aguardando_documentacao');
-    const small_pv_n5 = sumKey('n5_organizando_dcs');
-    
-    const small_sup_aguard = sumKey('suporte_aguardando_atendimento');
-    const small_sup_final = sumKey('suporte_atendimentos_finalizados');
-    
-    const small_fin_aguard = sumKey('financeiro_aguardando_atendimento');
-    const small_fin_acordo = sumKey('contato_inicial_acordo_pendente');
 
     // DINÂMICO
     const numericKeys = new Set<string>();
     metrics.forEach(m => Object.keys(m).forEach(k => {
-        if (k !== 'data' && k !== 'id' && typeof m[k] === 'number') numericKeys.add(k);
+        if (!['data', 'id', 'telefone', 'nome', 'email', 'origem', 'status', '_parsedDate'].includes(k) && typeof m[k] === 'number') {
+            numericKeys.add(k);
+        }
     }));
 
     const dynamicStats = Array.from(numericKeys).sort().map(key => ({
         key,
         label: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-        total: sumKey(key),
-        today: metrics.length > 0 ? Number(metrics[metrics.length - 1][key]) || 0 : 0
+        total: sumValues(key),
+        avg: (sumValues(key) / (filteredMetrics.length || 1)).toFixed(2)
     }));
 
     return {
-        comercial: { analise: com_analise, follow: com_followups, contratos: com_contratos, taxa: com_taxa },
+        comercial: { analise: com_analise, follow: com_followups, contratos: com_contratos, taxa: com_taxa, leads: com_leads },
         posVenda: { pendentes: pv_pendentes, onboard: pv_onboard, agendamento: pv_agendamento, docAguard: pv_doc_aguard, docComp: pv_doc_comp },
         juridico: { producao: jur_producao, revisao: jur_revisao, protocolos: jur_protocolos, taxa: jur_taxa },
-        gestao: { cac: gestao_cac, custoProt: gestao_custo_prot, estoque: gestao_estoque, totalCost },
-        small: {
-            com: { n5: small_com_n5 },
-            pv: { n1: small_pv_n1, n2: small_pv_n2, n3m: small_pv_n3m, n3f: small_pv_n3f, n4: small_pv_n4, n5: small_pv_n5 },
-            sup: { aguard: small_sup_aguard, final: small_sup_final },
-            fin: { aguard: small_fin_aguard, acordo: small_fin_acordo }
-        },
+        supFin: { supAguard: sup_aguard, supFinal: sup_final, finAguard: fin_aguard, finAcordo: fin_acordo },
+        gestao: { cac: gestao_cac, custoProt: gestao_custo_prot, totalCost },
         dynamicStats,
         filteredMetrics
     };
   }, [metrics, currentRange, investments]);
 
   const handleUnlock = () => {
-    const pin = window.prompt("Insira o PIN de acesso à Gestão:");
-    if (pin === "1234") { // Você pode trocar esse PIN aqui
-        setIsGestaoUnlocked(true);
-        setPinError(false);
+    const pin = window.prompt("Digite o PIN de Segurança (Padrão: 1234):");
+    if (pin === "1234") {
+      setIsGestaoUnlocked(true);
     } else if (pin !== null) {
-        alert("PIN Incorreto. Acesso negado.");
-        setPinError(true);
+      alert("PIN Incorreto!");
     }
   };
 
@@ -147,20 +143,22 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (!stats) return [];
     const dailyMap = new Map();
     stats.filteredMetrics.forEach(m => {
-        const date = String(m.data).substring(5, 10);
+        const d = (m as any)._parsedDate;
+        if (!d) return;
+        const date = d.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'});
         const existing = dailyMap.get(date) || { date, leads: 0, contratos: 0 };
         existing.leads += 1;
-        existing.contratos += (Number(m.contratos_fechados) || 0);
+        existing.contratos += (Number(m.contratos_fechados) || Number(m.n5_contrato_assinado) ? 1 : 0);
         dailyMap.set(date, existing);
     });
     return Array.from(dailyMap.values());
   }, [stats]);
 
-  if (isRefreshing && metrics.length === 0) {
+  if (isRefreshing && (!metrics || metrics.length === 0)) {
       return (
           <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-500 gap-4">
               <Loader2 className="w-10 h-10 animate-spin text-emerald-500" />
-              <p className="text-white font-bold text-lg tracking-widest">LEADFLOW</p>
+              <p className="text-white font-bold text-lg tracking-widest uppercase animate-pulse">Sincronizando Banco...</p>
           </div>
       );
   }
@@ -175,16 +173,31 @@ const Dashboard: React.FC<DashboardProps> = ({
              </div>
              LeadFlow <span className="text-emerald-500">Analytics</span>
           </h1>
-          <p className="text-slate-500 text-sm mt-2 font-medium">
-            Monitorando: <span className="text-slate-300">dashboard_diario</span> • {currentRange.label}
+          <p className="text-slate-500 text-sm mt-2 font-medium flex items-center gap-2">
+            Status: <span className="text-emerald-400 font-bold bg-emerald-500/5 px-2 py-0.5 rounded border border-emerald-500/20">{metrics.length} leads no log</span> • {currentRange.label}
           </p>
         </div>
 
         <div className="flex flex-col md:flex-row gap-4 items-center">
+             <div className="flex bg-slate-900 rounded-xl p-1 border border-slate-800 shadow-xl">
+                {[7, 15, 30].map(d => (
+                  <button key={d} onClick={() => {
+                    const end = new Date(); const start = new Date(); start.setDate(end.getDate() - (d - 1));
+                    onRangeChange({ start, end, label: `${d} Dias` });
+                  }} className={`px-4 py-1.5 text-[10px] font-black rounded-lg transition-all ${currentRange.label === `${d} Dias` ? 'bg-slate-700 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>
+                    {d}D
+                  </button>
+                ))}
+                <button onClick={() => setShowDatePicker(!showDatePicker)} className={`px-4 py-1.5 text-[10px] font-black rounded-lg transition-all flex items-center gap-2 ${showDatePicker ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+                  <Calendar className="w-3 h-3" /> {showDatePicker ? 'OK' : 'CALENDÁRIO'}
+                </button>
+             </div>
+
              <div className="flex bg-slate-900/50 rounded-xl p-1 border border-slate-800">
                 <button onClick={() => setActiveTab('strategic')} className={`px-5 py-2.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'strategic' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>ESTRATÉGICO</button>
-                <button onClick={() => setActiveTab('full')} className={`px-5 py-2.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'full' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>RAIO-X</button>
+                <button onClick={() => setActiveTab('full')} className={`px-5 py-2.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'full' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>MÉTRICAS</button>
              </div>
+
              <div className="flex items-center gap-2">
                 <button onClick={onOpenSettings} className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-emerald-500 transition-all shadow-lg"><Settings className="w-5 h-5" /></button>
                 <button onClick={onRefresh} className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-emerald-500 transition-all shadow-lg"><RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} /></button>
@@ -192,201 +205,205 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </header>
 
-      {stats && activeTab === 'strategic' && (
-        <div className="space-y-12 animate-in fade-in duration-500">
-            
-            {/* GRUPO 1: COMERCIAL */}
-            <section>
-                <div className="flex items-center gap-3 mb-6">
-                    <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                        <Users className="w-4 h-4 text-blue-500" /> COMERCIAL
-                    </h3>
-                    <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <KPICard title="AGUARDANDO ANÁLISE" value={stats.comercial.analise} icon={<Clock />} colorClass="text-blue-400" />
-                    <KPICard title="FOLLOW-UPS REALIZADOS" value={stats.comercial.follow} subValue="(+ Realizados)" icon={<RefreshCw />} colorClass="text-indigo-400" />
-                    <KPICard title="CONTRATOS FECHADOS" value={stats.comercial.contratos} icon={<FileCheck />} colorClass="text-emerald-400" />
-                    <KPICard title="TAXA DE CONVERSÃO" value={`${stats.comercial.taxa}%`} icon={<Target />} colorClass="text-purple-400" />
-                </div>
-            </section>
-
-            {/* GRUPO 2: PÓS-VENDA */}
-            <section>
-                <div className="flex items-center gap-3 mb-6">
-                    <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                        <ShieldCheck className="w-4 h-4 text-indigo-500" /> PÓS-VENDA
-                    </h3>
-                    <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                    <KPICard title="CLIENTES PENDENTES" value={stats.posVenda.pendentes} subValue="Total no setor" icon={<Users />} colorClass="text-slate-400" />
-                    <KPICard title="ONBOARD REALIZADO" value={stats.posVenda.onboard} icon={<CheckCircle />} colorClass="text-emerald-400" />
-                    <KPICard title="AGUARDANDO AGENDAMENTO" value={stats.posVenda.agendamento} icon={<Calendar />} colorClass="text-orange-400" />
-                    <KPICard title="AGUARDANDO DOCUMENTAÇÃO" value={stats.posVenda.docAguard} icon={<FileText />} colorClass="text-blue-400" />
-                    <KPICard title="DOCUMENTAÇÃO COMPLETA" value={stats.posVenda.docComp} icon={<CheckCircle />} colorClass="text-indigo-400" />
-                </div>
-            </section>
-
-            {/* GRUPO 3: JURÍDICO */}
-            <section>
-                <div className="flex items-center gap-3 mb-6">
-                    <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                        <Briefcase className="w-4 h-4 text-amber-500" /> JURÍDICO
-                    </h3>
-                    <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <KPICard title="PRODUÇÃO DE INICIAL" value={stats.juridico.producao} icon={<Clock />} colorClass="text-amber-400" />
-                    <KPICard title="REVISÃO DE INICIAL" value={stats.juridico.revisao} icon={<FileText />} colorClass="text-blue-400" />
-                    <KPICard title="PROCESSOS PROTOCOLADOS" value={stats.juridico.protocolos} icon={<Archive />} colorClass="text-emerald-400" />
-                    <KPICard title="TAXA APROVEITAMENTO" value={`${stats.juridico.taxa}%`} subValue="Protocolados vs Fechados" icon={<TrendingUp />} colorClass="text-purple-400" />
-                </div>
-            </section>
-
-            {/* GRUPO 4: GESTÃO (PRIVADO) */}
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                <div className="xl:col-span-2 space-y-8">
-                    <section className="relative">
-                        <div className="flex items-center justify-between mb-6">
-                            <div className="flex items-center gap-3">
-                                <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                                    <DollarSign className="w-4 h-4 text-emerald-500" /> GESTÃO (DADOS INTERNOS)
-                                </h3>
-                                {!isGestaoUnlocked && <Lock className="w-3 h-3 text-rose-500" />}
-                                {isGestaoUnlocked && <Unlock className="w-3 h-3 text-emerald-500" />}
-                            </div>
-                            
-                            {!isGestaoUnlocked && (
-                                <button 
-                                    onClick={handleUnlock}
-                                    className="text-[9px] font-black text-emerald-500 hover:text-white border border-emerald-500/20 px-3 py-1 rounded-lg uppercase tracking-widest transition-all"
-                                >
-                                    Desbloquear Dados Sensíveis
-                                </button>
-                            )}
-                        </div>
-
-                        <div className={`grid grid-cols-1 md:grid-cols-3 gap-6 transition-all duration-700 ${!isGestaoUnlocked ? 'blur-md pointer-events-none opacity-40 select-none' : 'blur-0'}`}>
-                            <KPICard title="CAC" value={`R$ ${stats.gestao.cac.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`} subValue="Custo Aquisição Cliente" icon={<Users />} colorClass="text-slate-300" />
-                            <KPICard title="CUSTO POR PROTOCOLO" value={`R$ ${stats.gestao.custoProt.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`} icon={<Archive />} colorClass="text-slate-300" />
-                            <KPICard title="ESTOQUE DE PROCESSOS" value={stats.gestao.estoque} subValue="Protocolados - Arquivados" icon={<Briefcase />} colorClass="text-emerald-400" />
-                        </div>
-                        
-                        {!isGestaoUnlocked && (
-                            <div className="absolute inset-0 flex items-center justify-center z-20 pt-8">
-                                <div className="bg-slate-900/80 backdrop-blur-md border border-slate-700 p-6 rounded-2xl text-center shadow-2xl">
-                                    <Lock className="w-8 h-8 text-rose-500 mx-auto mb-3" />
-                                    <p className="text-white font-bold text-sm">ACESSO RESTRITO AO CLIENTE</p>
-                                    <p className="text-slate-500 text-xs mt-1">Os dados de CAC e Estocagem são confidenciais.</p>
-                                </div>
-                            </div>
-                        )}
-                    </section>
-
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 shadow-2xl">
-                        <h2 className="text-white text-lg font-black mb-8 flex items-center gap-2">
-                            <BarChart3 className="w-5 h-5 text-emerald-500" /> EVOLUÇÃO DIÁRIA
-                        </h2>
-                        <div className="h-[250px]">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={chartData}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                                    <XAxis dataKey="date" stroke="#475569" fontSize={10} axisLine={false} />
-                                    <YAxis stroke="#475569" fontSize={10} axisLine={false} />
-                                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px' }} />
-                                    <Area type="monotone" dataKey="leads" stroke="#3b82f6" fill="#3b82f610" strokeWidth={2} />
-                                    <Area type="monotone" dataKey="contratos" stroke="#10b981" fill="#10b98110" strokeWidth={2} />
-                                </AreaChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </div>
-                </div>
-
-                {/* INDICADORES MENORES (FLUXO) */}
-                <div className="space-y-8">
-                    <section>
-                        <h3 className="text-slate-500 text-[9px] font-black uppercase mb-4 tracking-widest flex items-center gap-2"><Filter className="w-3 h-3" /> INDICADORES DE FLUXO</h3>
-                        <div className="space-y-3">
-                            <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex justify-between items-center hover:border-emerald-500/30 transition-all">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase">Comercial: N5 - Contrato Assinado</span>
-                                <span className="text-sm font-black text-white">{stats.small.com.n5}</span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-center">
-                                    <div className="text-[8px] font-black text-slate-500 mb-1">N1 - ONBOARD PEND.</div>
-                                    <div className="text-sm font-black text-rose-400">{stats.small.pv.n1}</div>
-                                </div>
-                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-center">
-                                    <div className="text-[8px] font-black text-slate-500 mb-1">N2 - AGUARD. AGEND.</div>
-                                    <div className="text-sm font-black text-orange-400">{stats.small.pv.n2}</div>
-                                </div>
-                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-center">
-                                    <div className="text-[8px] font-black text-slate-500 mb-1">N3 - REUNIÃO MARC.</div>
-                                    <div className="text-sm font-black text-blue-400">{stats.small.pv.n3m}</div>
-                                </div>
-                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-center">
-                                    <div className="text-[8px] font-black text-slate-500 mb-1">N3 - REUNIÃO FEITA</div>
-                                    <div className="text-sm font-black text-indigo-400">{stats.small.pv.n3f}</div>
-                                </div>
-                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-center">
-                                    <div className="text-[8px] font-black text-slate-500 mb-1">N4 - AGUARD. DOC.</div>
-                                    <div className="text-sm font-black text-blue-300">{stats.small.pv.n4}</div>
-                                </div>
-                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-center">
-                                    <div className="text-[8px] font-black text-slate-500 mb-1">N5 - ORGANIZANDO DCS</div>
-                                    <div className="text-sm font-black text-emerald-400">{stats.small.pv.n5}</div>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section>
-                        <h3 className="text-slate-500 text-[9px] font-black uppercase mb-4 tracking-widest flex items-center gap-2"><Headphones className="w-3 h-3" /> SUPORTE</h3>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl">
-                                <span className="text-[8px] font-bold text-slate-500 block mb-1 uppercase">Aguardando Atend.</span>
-                                <span className="text-lg font-black text-white">{stats.small.sup.aguard}</span>
-                            </div>
-                            <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl">
-                                <span className="text-[8px] font-bold text-slate-500 block mb-1 uppercase">Finalizados</span>
-                                <span className="text-lg font-black text-emerald-400">{stats.small.sup.final}</span>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section>
-                        <h3 className="text-slate-500 text-[9px] font-black uppercase mb-4 tracking-widest flex items-center gap-2"><Landmark className="w-3 h-3" /> FINANCEIRO</h3>
-                        <div className="space-y-3">
-                            <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase">Aguardando Financeiro</span>
-                                <span className="text-lg font-black text-white">{stats.small.fin.aguard}</span>
-                            </div>
-                            <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase">Acordo Pendente</span>
-                                <span className="text-lg font-black text-orange-400">{stats.small.fin.acordo}</span>
-                            </div>
-                        </div>
-                    </section>
-                </div>
+      {showDatePicker && (
+        <div className="mb-8 p-6 bg-slate-900 border border-emerald-500/20 rounded-2xl flex flex-wrap items-center gap-6 animate-in slide-in-from-top-4 duration-300 shadow-2xl">
+            <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-500 uppercase">Início</label>
+                <input type="date" value={currentRange.start.toISOString().split('T')[0]} onChange={(e) => onRangeChange({...currentRange, start: new Date(e.target.value + 'T12:00:00'), label: 'Customizado'})} className="bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-xs text-white" />
             </div>
+            <ChevronRight className="w-4 h-4 text-slate-700 mt-4" />
+            <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-500 uppercase">Fim</label>
+                <input type="date" value={currentRange.end.toISOString().split('T')[0]} onChange={(e) => onRangeChange({...currentRange, end: new Date(e.target.value + 'T12:00:00'), label: 'Customizado'})} className="bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-xs text-white" />
+            </div>
+            <button onClick={() => setShowDatePicker(false)} className="mt-4 ml-auto p-2 bg-slate-800 rounded-lg text-slate-400"><X className="w-4 h-4" /></button>
         </div>
       )}
 
-      {stats && activeTab === 'full' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 animate-in zoom-in duration-300">
-            {stats.dynamicStats.map((item) => (
-                <div key={item.key} className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex justify-between items-center hover:border-emerald-500/50 transition-all">
-                    <div>
-                        <div className="text-[9px] font-black text-slate-500 uppercase tracking-wider">{item.label}</div>
-                        <div className="text-xl font-black text-white">{item.total}</div>
-                    </div>
-                    <div className="text-right">
-                        <div className="text-[8px] font-bold text-slate-600 uppercase">Hoje</div>
-                        <div className="text-sm font-black text-emerald-500">{item.today}</div>
-                    </div>
-                </div>
-            ))}
+      {stats ? (
+        activeTab === 'strategic' ? (
+          <div className="space-y-12 animate-in fade-in duration-500">
+              
+              {/* COMERCIAL */}
+              <section>
+                  <div className="flex items-center gap-3 mb-6">
+                      <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><Users className="w-4 h-4 text-blue-500" /> COMERCIAL</h3>
+                      <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                      <KPICard title="TOTAL DE LEADS" value={stats.comercial.leads} icon={<Users />} colorClass="text-slate-400" />
+                      <KPICard title="AGUARD. ANÁLISE" value={stats.comercial.analise} icon={<Clock />} colorClass="text-blue-400" />
+                      <KPICard title="CONTRATOS" value={stats.comercial.contratos} icon={<FileCheck />} colorClass="text-emerald-400" subValue="Leads que assinaram" />
+                      <KPICard title="TAXA CONVERSÃO" value={`${stats.comercial.taxa}%`} icon={<Target />} colorClass="text-purple-400" />
+                  </div>
+              </section>
+
+              {/* JURÍDICO */}
+              <section>
+                  <div className="flex items-center gap-3 mb-6">
+                      <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><Briefcase className="w-4 h-4 text-amber-500" /> JURÍDICO</h3>
+                      <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                      <KPICard title="PROD. INICIAL" value={stats.juridico.producao} icon={<Clock />} colorClass="text-amber-400" />
+                      <KPICard title="REVISÃO INICIAL" value={stats.juridico.revisao} icon={<FileText />} colorClass="text-blue-400" />
+                      <KPICard title="PROTOCOLADOS" value={stats.juridico.protocolos} icon={<Archive />} colorClass="text-emerald-400" />
+                      <KPICard 
+                          title="APROVEITAMENTO" 
+                          value={`${stats.juridico.taxa}%`} 
+                          icon={<TrendingUp />} 
+                          colorClass={Number(stats.juridico.taxa) > 100 ? "text-amber-400" : "text-purple-400"}
+                          subValue="Protocolos vs Produção"
+                      />
+                  </div>
+                  {Number(stats.juridico.taxa) > 100 && (
+                      <div className="mt-4 p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl flex items-center gap-3">
+                          <AlertCircle className="w-4 h-4 text-amber-500" />
+                          <p className="text-[10px] text-amber-200/60 font-medium uppercase tracking-widest leading-relaxed">
+                            Aproveitamento acima de 100% indica conclusão de processos acumulados de períodos anteriores.
+                          </p>
+                      </div>
+                  )}
+              </section>
+
+              {/* PÓS-VENDA */}
+              <section>
+                  <div className="flex items-center gap-3 mb-6">
+                      <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-indigo-500" /> PÓS-VENDA</h3>
+                      <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                      <KPICard title="PENDENTES" value={stats.posVenda.pendentes} icon={<Users />} colorClass="text-slate-400" />
+                      <KPICard title="ONBOARD FEITO" value={stats.posVenda.onboard} icon={<CheckCircle />} colorClass="text-emerald-400" />
+                      <KPICard title="AGENDAMENTO" value={stats.posVenda.agendamento} icon={<Calendar />} colorClass="text-orange-400" />
+                      <KPICard title="DOC. PENDENTE" value={stats.posVenda.docAguard} icon={<FileText />} colorClass="text-blue-400" />
+                      <KPICard title="DOC. COMPLETA" value={stats.posVenda.docComp} icon={<CheckCircle />} colorClass="text-indigo-400" />
+                  </div>
+              </section>
+
+              {/* GESTÃO & INVESTIMENTOS - CORREÇÃO DE VISUALIZAÇÃO */}
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  <div className="xl:col-span-2 space-y-8">
+                      <section className="relative">
+                          <div className="flex items-center justify-between mb-6">
+                              <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
+                                  <DollarSign className="w-4 h-4 text-emerald-500" /> GESTÃO E CUSTOS
+                              </h3>
+                              {isGestaoUnlocked ? (
+                                <button onClick={() => setIsGestaoUnlocked(false)} className="text-[9px] font-black text-slate-500 hover:text-white border border-slate-800 px-3 py-1.5 rounded-lg uppercase tracking-widest transition-all flex items-center gap-2">
+                                    <EyeOff className="w-3 h-3" /> Ocultar Dados
+                                </button>
+                              ) : (
+                                <button onClick={handleUnlock} className="text-[9px] font-black text-emerald-500 hover:text-white border border-emerald-500/20 bg-emerald-500/5 px-3 py-1.5 rounded-lg uppercase tracking-widest transition-all flex items-center gap-2 shadow-lg hover:bg-emerald-500/10">
+                                    <Lock className="w-3 h-3" /> Desbloquear Dados Sensíveis
+                                </button>
+                              )}
+                          </div>
+
+                          <div className="relative">
+                            <div className={`grid grid-cols-1 md:grid-cols-3 gap-6 transition-all duration-500 ${!isGestaoUnlocked ? 'opacity-40 grayscale blur-sm pointer-events-none' : 'opacity-100 grayscale-0 blur-0'}`}>
+                                <KPICard title="INVESTIMENTO TOTAL" value={isGestaoUnlocked ? `R$ ${stats.gestao.totalCost.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` : "R$ •••••••"} subValue="Rateio no período" icon={<DollarSign />} colorClass="text-slate-200" />
+                                <KPICard title="CAC" value={isGestaoUnlocked ? `R$ ${stats.gestao.cac.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` : "R$ •••••••"} subValue="Custo/Contrato" icon={<Users />} colorClass="text-emerald-400" />
+                                <KPICard title="CUSTO POR PROTOCOLO" value={isGestaoUnlocked ? `R$ ${stats.gestao.custoProt.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` : "R$ •••••••"} icon={<Archive />} colorClass="text-blue-400" />
+                            </div>
+                            
+                            {!isGestaoUnlocked && (
+                              <div className="absolute inset-0 flex items-center justify-center z-20">
+                                 <div className="bg-slate-900/90 border border-emerald-500/30 p-6 rounded-2xl shadow-2xl flex flex-col items-center text-center gap-4 max-w-xs backdrop-blur-md">
+                                    <div className="p-3 bg-emerald-500/10 rounded-full">
+                                      <ShieldAlert className="w-8 h-8 text-emerald-500" />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <h4 className="text-white font-bold text-sm uppercase tracking-tighter">Área Restrita</h4>
+                                      <p className="text-[10px] text-slate-400 font-medium leading-relaxed">Os dados financeiros e de custos estão protegidos por PIN para privacidade da gestão.</p>
+                                    </div>
+                                    <button onClick={handleUnlock} className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black uppercase rounded-xl transition-all shadow-lg shadow-emerald-900/40">
+                                      Digitar PIN (1234)
+                                    </button>
+                                 </div>
+                              </div>
+                            )}
+                          </div>
+                      </section>
+
+                      <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 shadow-2xl">
+                          <h2 className="text-white text-lg font-black mb-8 flex items-center gap-2 uppercase tracking-tighter">
+                              <BarChart3 className="w-5 h-5 text-emerald-500" /> Evolução do Log
+                          </h2>
+                          <div className="h-[280px]">
+                              <ResponsiveContainer width="100%" height="100%">
+                                  <AreaChart data={chartData}>
+                                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                                      <XAxis dataKey="date" stroke="#475569" fontSize={10} axisLine={false} />
+                                      <YAxis stroke="#475569" fontSize={10} axisLine={false} />
+                                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', fontSize: '10px' }} />
+                                      <Area type="monotone" dataKey="leads" stroke="#3b82f6" fill="#3b82f610" strokeWidth={3} />
+                                      <Area type="monotone" dataKey="contratos" stroke="#10b981" fill="#10b98110" strokeWidth={3} />
+                                  </AreaChart>
+                              </ResponsiveContainer>
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* SUPORTE E FINANCEIRO */}
+                  <div className="space-y-6">
+                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+                          <h3 className="text-slate-500 text-[9px] font-black uppercase mb-4 tracking-widest flex items-center gap-2"><Headphones className="w-3 h-3 text-blue-400" /> SUPORTE</h3>
+                          <div className="grid grid-cols-2 gap-3">
+                              <div className="bg-slate-950 p-3 rounded-xl text-center border border-slate-800">
+                                  <div className="text-[8px] font-bold text-slate-600 uppercase mb-1">Pendente</div>
+                                  <div className="text-xl font-black text-white">{stats.supFin.supAguard}</div>
+                              </div>
+                              <div className="bg-slate-950 p-3 rounded-xl text-center border border-slate-800">
+                                  <div className="text-[8px] font-bold text-slate-600 uppercase mb-1">Finalizados</div>
+                                  <div className="text-xl font-black text-emerald-500">{stats.supFin.supFinal}</div>
+                              </div>
+                          </div>
+                      </div>
+
+                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+                          <h3 className="text-slate-500 text-[9px] font-black uppercase mb-4 tracking-widest flex items-center gap-2"><Landmark className="w-3 h-3 text-orange-400" /> FINANCEIRO</h3>
+                          <div className="grid grid-cols-2 gap-3">
+                              <div className="bg-slate-950 p-3 rounded-xl text-center border border-slate-800">
+                                  <div className="text-[8px] font-bold text-slate-600 uppercase mb-1">Fila</div>
+                                  <div className="text-xl font-black text-white">{stats.supFin.finAguard}</div>
+                              </div>
+                              <div className="bg-slate-950 p-3 rounded-xl text-center border border-slate-800">
+                                  <div className="text-[8px] font-bold text-slate-600 uppercase mb-1">Acordos</div>
+                                  <div className="text-xl font-black text-orange-400">{stats.supFin.finAcordo}</div>
+                              </div>
+                          </div>
+                      </div>
+
+                      <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl flex items-start gap-3">
+                          <Info className="w-5 h-5 text-emerald-500 flex-shrink-0" />
+                          <p className="text-[9px] text-slate-500 leading-relaxed uppercase font-bold tracking-tight">
+                            Investimentos configurados são rateados dia a dia para o cálculo preciso do CAC.
+                          </p>
+                      </div>
+                  </div>
+              </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 animate-in zoom-in duration-300">
+              {stats.dynamicStats.map((item) => (
+                  <div key={item.key} className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex justify-between items-center group hover:border-emerald-500 transition-all">
+                      <div>
+                          <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 group-hover:text-emerald-500">{item.label}</div>
+                          <div className="text-2xl font-black text-white">{item.total}</div>
+                      </div>
+                      <div className="text-right">
+                          <div className="text-[9px] font-bold text-slate-700 uppercase">Frequência</div>
+                          <div className="text-xs font-black text-emerald-500">{item.avg}</div>
+                      </div>
+                  </div>
+              ))}
+          </div>
+        )
+      ) : (
+        <div className="flex flex-col items-center justify-center py-20 bg-slate-900/20 border border-dashed border-slate-800 rounded-3xl">
+            <Loader2 className="w-10 h-10 animate-spin text-emerald-500 mb-4" />
+            <p className="text-lg font-bold uppercase tracking-widest opacity-40">Processando Histórico...</p>
         </div>
       )}
     </div>

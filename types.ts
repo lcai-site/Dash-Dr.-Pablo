@@ -4,6 +4,9 @@ export interface DashboardMetric {
   data: string;
   id: string | number;
   
+  // Base para taxas
+  leads: number; 
+
   // Comercial
   aguardando_analise: number;
   followups_realizados: number;
@@ -47,6 +50,7 @@ export interface DateRange {
   start: Date;
   end: Date;
   label: string;
+  key?: '7' | '15' | '30' | 'custom';
 }
 
 export interface FinancialSettings {
