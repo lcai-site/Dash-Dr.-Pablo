@@ -1,534 +1,396 @@
 import React, { useMemo, useState } from 'react';
-import {
-    XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, AreaChart, Area
+import { 
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
-import {
-    Target, Users, FileCheck, RefreshCw, Settings, Calendar, DollarSign, PieChart, Briefcase, FileText, Clock, CheckCircle, Loader2, LayoutGrid, BarChart3, DatabaseZap, Search, ChevronDown
+import { 
+  Target, Users, FileCheck, RefreshCw, Settings, Calendar, DollarSign, PieChart, Clock, CheckCircle, Loader2, BarChart3, DatabaseZap, Search, ChevronDown, Briefcase, ShieldCheck, TrendingUp, Filter, Headphones, Landmark, Archive, FileText, Lock, Unlock
 } from 'lucide-react';
 import { DashboardMetric, DateRange, FinancialSettings, Investment } from '../types';
 import KPICard from './KPICard';
 
 interface DashboardProps {
-    metrics: DashboardMetric[];
-    financialSettings: FinancialSettings;
-    investments: Investment[];
-    onRefresh: () => void;
-    isRefreshing: boolean;
-    currentRange: DateRange;
-    onRangeChange: (range: DateRange) => void;
-    onOpenSettings: () => void;
+  metrics: DashboardMetric[];
+  financialSettings: FinancialSettings;
+  investments: Investment[];
+  onRefresh: () => void;
+  isRefreshing: boolean;
+  currentRange: DateRange;
+  onRangeChange: (range: DateRange) => void;
+  onOpenSettings: () => void;
 }
 
-const toLocalISO = (date: Date) => {
-    return date.toLocaleDateString('en-CA');
-};
+const toLocalISO = (date: Date) => date.toLocaleDateString('en-CA');
 
-const Dashboard: React.FC<DashboardProps> = ({
-    metrics,
+const Dashboard: React.FC<DashboardProps> = ({ 
+    metrics, 
     financialSettings,
     investments,
-    onRefresh,
+    onRefresh, 
     isRefreshing,
     currentRange,
     onRangeChange,
     onOpenSettings
 }) => {
-    const [activeTab, setActiveTab] = useState<'strategic' | 'full'>('strategic');
-    const [searchTerm, setSearchTerm] = useState('');
-    const [showDatePicker, setShowDatePicker] = useState(false);
+  const [activeTab, setActiveTab] = useState<'strategic' | 'full'>('strategic');
+  const [isGestaoUnlocked, setIsGestaoUnlocked] = useState(false);
+  const [pinError, setPinError] = useState(false);
 
-    const stats = useMemo(() => {
-        if (!metrics) return null;
+  const stats = useMemo(() => {
+    if (!metrics) return null;
 
-        const startDateStr = toLocalISO(currentRange.start);
-        const endDateStr = toLocalISO(currentRange.end);
+    const startDateStr = toLocalISO(currentRange.start);
+    const endDateStr = toLocalISO(currentRange.end);
+    const filteredMetrics = metrics.filter(m => m.data >= startDateStr && m.data <= endDateStr);
 
-        const filteredMetrics = metrics.filter(m =>
-            m.data >= startDateStr && m.data <= endDateStr
-        );
+    const sumKey = (key: string): number => filteredMetrics.reduce((acc, curr) => acc + (Number(curr[key]) || 0), 0);
 
-        const sumKey = (data: DashboardMetric[], key: string): number => {
-            return data.reduce((acc, curr) => {
-                const val = curr[key];
-                return acc + (typeof val === 'number' ? val : 0);
-            }, 0);
-        };
-
-        const lastVal = (data: DashboardMetric[], key: string): number => {
-            if (data.length === 0) return 0;
-            const val = data[data.length - 1][key];
-            return typeof val === 'number' ? val : 0;
-        };
-
-        // --- FINANCEIRO ---
-        const calculateTotalDailyCost = (targetDate: Date) => {
-            const tDateStr = toLocalISO(targetDate);
-            const activeInvs = investments.filter(i => tDateStr >= i.data_inicio && tDateStr <= i.data_fim);
-            return activeInvs.reduce((total, inv) => {
-                const start = new Date(inv.data_inicio + 'T12:00:00');
-                const end = new Date(inv.data_fim + 'T12:00:00');
-                const diffDays = Math.max(1, Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
-                return total + (inv.valor / diffDays);
-            }, 0);
-        };
-
-        let totalCost = 0;
-        let cursor = new Date(currentRange.start);
-        while (cursor <= currentRange.end) {
-            totalCost += calculateTotalDailyCost(cursor);
-            cursor.setDate(cursor.getDate() + 1);
-        }
-
-        // --- MAPEAMENTO ESTRATÉGICO COMPLETO ---
-
-        // COMERCIAL
-        const com_Leads = filteredMetrics.length;
-        const com_AguardAnalise = sumKey(filteredMetrics, 'aguardando_analise');
-        const com_FollowUps = sumKey(filteredMetrics, 'followups_realizados');
-        const com_Contratos = sumKey(filteredMetrics, 'contratos_fechados');
-        const com_Taxa = com_Leads > 0 ? ((com_Contratos / com_Leads) * 100).toFixed(2) : '0.00';
-
-        // FLUXO N (Etapas Numeradas - Small KPIs)
-        const n1_OnboardPend = sumKey(filteredMetrics, 'n1_onboard_pendente');
-        const n2_Agendamento = sumKey(filteredMetrics, 'n2_aguardando_agendamento');
-        const n3_ReuniaoMarc = sumKey(filteredMetrics, 'n3_reuniao_marcada');
-        const n3_ReuniaoFeit = sumKey(filteredMetrics, 'n3_reuniao_feita');
-        const n4_AguardDoc = sumKey(filteredMetrics, 'n4_aguardando_documentacao');
-        const n5_OrgDCS = sumKey(filteredMetrics, 'n5_organizando_dcs');
-        const n5_ContratoAssin = sumKey(filteredMetrics, 'n5_contrato_assinado');
-
-        // PÓS-VENDA (Large Indicators)
-        const pv_ClientesPend = sumKey(filteredMetrics, 'clientes_pendentes_total');
-        const pv_OnboardReal = sumKey(filteredMetrics, 'onboard_realizado');
-        const pv_AguardAgend = sumKey(filteredMetrics, 'aguardando_agendamento');
-        const pv_AguardDoc = sumKey(filteredMetrics, 'aguardando_documentacao');
-        const pv_DocCompleta = sumKey(filteredMetrics, 'documentacao_completa');
-
-        // JURÍDICO
-        const jur_Producao = sumKey(filteredMetrics, 'producao_de_inicial');
-        const jur_Revisao = sumKey(filteredMetrics, 'revisao_de_inicial');
-        const jur_Protocolados = sumKey(filteredMetrics, 'processos_protocolados');
-        const jur_Arquivados = sumKey(filteredMetrics, 'processos_arquivados');
-        const jur_TaxaAprov = com_Contratos > 0 && jur_Protocolados > 0
-            ? ((com_Contratos / jur_Protocolados) * 100).toFixed(2)
-            : '0.00';
-
-        // SUPORTE (placeholders)
-        const sup_Aguardando = sumKey(filteredMetrics, 'suporte_aguardando_atendimento');
-        const sup_Finalizados = sumKey(filteredMetrics, 'suporte_atendimentos_finalizados');
-
-        // FINANCEIRO (placeholders)
-        const fin_AguardAtend = sumKey(filteredMetrics, 'financeiro_aguardando_atendimento');
-        const fin_ContatoInic = sumKey(filteredMetrics, 'financeiro_contato_inicial_pendente');
-
-        // GESTÃO (Cálculos)
-        const cpa = com_Contratos > 0 ? totalCost / com_Contratos : 0;
-        const custoPorProtocolo = jur_Protocolados > 0 ? totalCost / jur_Protocolados : 0;
-        const estoque = jur_Protocolados - jur_Arquivados;
-        const revenue = com_Contratos * financialSettings.average_ticket;
-        const roi = totalCost > 0 ? ((revenue - totalCost) / totalCost) * 100 : 0;
-
-        // DESCOBERTA DINÂMICA
-        const numericKeys = new Set<string>();
-        metrics.forEach(m => {
-            Object.keys(m).forEach(k => {
-                if (k !== 'data' && k !== 'id' && k !== 'telefone' && typeof m[k] === 'number') {
-                    numericKeys.add(k);
-                }
-            });
-        });
-
-        const dynamicStats = Array.from(numericKeys).sort().map(key => {
-            const isSnap = key.includes('pendente') || key.includes('aguardando') || key.includes('producao');
-            return {
-                key,
-                label: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-                total: sumKey(filteredMetrics, key),
-                today: lastVal(filteredMetrics, key),
-                labelType: isSnap ? 'Estoque' : 'Total'
-            };
-        });
-
-        return {
-            com: {
-                leads: com_Leads,
-                aguardAnalise: com_AguardAnalise,
-                followUps: com_FollowUps,
-                contratos: com_Contratos,
-                taxa: com_Taxa
-            },
-            fluxoN: {
-                n1: n1_OnboardPend,
-                n2: n2_Agendamento,
-                n3m: n3_ReuniaoMarc,
-                n3f: n3_ReuniaoFeit,
-                n4: n4_AguardDoc,
-                n5dcs: n5_OrgDCS,
-                n5contrato: n5_ContratoAssin
-            },
-            pv: {
-                clientesPend: pv_ClientesPend,
-                onboardReal: pv_OnboardReal,
-                aguardAgend: pv_AguardAgend,
-                aguardDoc: pv_AguardDoc,
-                docCompleta: pv_DocCompleta
-            },
-            juridico: {
-                producao: jur_Producao,
-                revisao: jur_Revisao,
-                protocolados: jur_Protocolados,
-                taxaAprov: jur_TaxaAprov
-            },
-            suporte: {
-                aguardando: sup_Aguardando,
-                finalizados: sup_Finalizados
-            },
-            financeiro: {
-                aguardAtend: fin_AguardAtend,
-                contatoInic: fin_ContatoInic
-            },
-            gestao: {
-                cac: cpa, // CAC = CPA (mesma métrica)
-                custoPorProtocolo: custoPorProtocolo,
-                estoque: estoque
-            },
-            fin: { cost: totalCost, cpa, roi },
-            dynamic: dynamicStats,
-            filteredMetrics
-        };
-    }, [metrics, currentRange, investments, financialSettings]);
-
-    const chartData = useMemo(() => {
-        if (!stats) return [];
-        const dailyMap = new Map();
-        stats.filteredMetrics.forEach(m => {
-            const date = String(m.data).substring(5, 10);
-            const existing = dailyMap.get(date) || { date, leads: 0, contratos: 0 };
-            existing.leads += 1;
-            existing.contratos += (Number(m.contratos_fechados) || 0);
-            dailyMap.set(date, existing);
-        });
-        return Array.from(dailyMap.values());
-    }, [stats]);
-
-    const handleCustomDateChange = (type: 'start' | 'end', value: string) => {
-        const date = new Date(value + 'T12:00:00');
-        if (type === 'start') {
-            onRangeChange({ ...currentRange, start: date, label: 'Personalizado' });
-        } else {
-            onRangeChange({ ...currentRange, end: date, label: 'Personalizado' });
-        }
+    // Cálculos de Investimento Real (Baseado no que você preenche na 'planilha' de investimentos)
+    const calculateTotalDailyCost = (targetDate: Date) => {
+      const tDateStr = toLocalISO(targetDate);
+      const activeInvs = investments.filter(i => tDateStr >= i.data_inicio && tDateStr <= i.data_fim);
+      return activeInvs.reduce((total, inv) => {
+        const start = new Date(inv.data_inicio + 'T12:00:00');
+        const end = new Date(inv.data_fim + 'T12:00:00');
+        const diffDays = Math.max(1, Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+        return total + (inv.valor / diffDays);
+      }, 0);
     };
 
-    if (isRefreshing && metrics.length === 0) {
-        return (
-            <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-500 gap-4">
-                <Loader2 className="w-10 h-10 animate-spin text-emerald-500" />
-                <div className="text-center">
-                    <p className="text-white font-bold text-lg">LeadFlow Analytics</p>
-                    <p className="text-xs">Sincronizando com Supabase Real-time...</p>
-                </div>
-            </div>
-        );
+    let totalCost = 0;
+    let cursor = new Date(currentRange.start);
+    while (cursor <= currentRange.end) {
+      totalCost += calculateTotalDailyCost(cursor);
+      cursor.setDate(cursor.getDate() + 1);
     }
 
-    return (
-        <div className="min-h-screen bg-slate-950 p-4 md:p-8 pt-16 selection:bg-emerald-500/30">
-            <header className="flex flex-col xl:flex-row xl:items-center justify-between mb-10 gap-6">
-                <div>
-                    <h1 className="text-3xl font-black text-white flex items-center gap-3 tracking-tight">
-                        <div className="p-2 bg-emerald-500 rounded-xl shadow-lg shadow-emerald-500/20 transition-transform hover:scale-110">
-                            <Target className="text-slate-950 w-6 h-6" />
-                        </div>
-                        LeadFlow <span className="text-emerald-500">Analytics</span>
-                    </h1>
-                    <p className="text-slate-500 text-sm mt-2 font-medium flex items-center gap-2">
-                        <DatabaseZap className="w-4 h-4 text-emerald-500/50" />
-                        Fonte: <span className="text-slate-300">tabela leads</span> • {currentRange.label}
-                    </p>
+    // 1. COMERCIAL
+    const com_leads = filteredMetrics.length;
+    const com_analise = sumKey('aguardando_analise');
+    const com_followups = sumKey('followups_realizados');
+    const com_contratos = sumKey('contratos_fechados');
+    const com_taxa = com_leads > 0 ? ((com_contratos / com_leads) * 100).toFixed(2) : '0';
+
+    // 2. PÓS-VENDA
+    const pv_pendentes = sumKey('clientes_pendentes_total');
+    const pv_onboard = sumKey('onboard_realizado');
+    const pv_agendamento = sumKey('aguardando_agendamento');
+    const pv_doc_aguard = sumKey('aguardando_documentacao');
+    const pv_doc_comp = sumKey('documentacao_completa');
+
+    // 3. JURÍDICO
+    const jur_producao = sumKey('producao_de_inicial');
+    const jur_revisao = sumKey('revisao_de_inicial');
+    const jur_protocolos = sumKey('processos_protocolados');
+    const jur_taxa = com_contratos > 0 ? ((jur_protocolos / com_contratos) * 100).toFixed(2) : '0';
+
+    // 4. GESTÃO (Dados Estratégicos do Cliente)
+    const gestao_cac = com_contratos > 0 ? totalCost / com_contratos : 0;
+    const gestao_custo_prot = jur_protocolos > 0 ? totalCost / jur_protocolos : 0;
+    const gestao_estoque = jur_protocolos - sumKey('arquivados');
+
+    // INDICADORES MENORES
+    const small_com_n5 = sumKey('n5_contrato_assinado');
+    const small_pv_n1 = sumKey('n1_onboard_pendente');
+    const small_pv_n2 = sumKey('n2_aguardando_agendamento');
+    const small_pv_n3m = sumKey('n3_reuniao_marcada');
+    const small_pv_n3f = sumKey('n3_reuniao_feita');
+    const small_pv_n4 = sumKey('n4_aguardando_documentacao');
+    const small_pv_n5 = sumKey('n5_organizando_dcs');
+    
+    const small_sup_aguard = sumKey('suporte_aguardando_atendimento');
+    const small_sup_final = sumKey('suporte_atendimentos_finalizados');
+    
+    const small_fin_aguard = sumKey('financeiro_aguardando_atendimento');
+    const small_fin_acordo = sumKey('contato_inicial_acordo_pendente');
+
+    // DINÂMICO
+    const numericKeys = new Set<string>();
+    metrics.forEach(m => Object.keys(m).forEach(k => {
+        if (k !== 'data' && k !== 'id' && typeof m[k] === 'number') numericKeys.add(k);
+    }));
+
+    const dynamicStats = Array.from(numericKeys).sort().map(key => ({
+        key,
+        label: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        total: sumKey(key),
+        today: metrics.length > 0 ? Number(metrics[metrics.length - 1][key]) || 0 : 0
+    }));
+
+    return {
+        comercial: { analise: com_analise, follow: com_followups, contratos: com_contratos, taxa: com_taxa },
+        posVenda: { pendentes: pv_pendentes, onboard: pv_onboard, agendamento: pv_agendamento, docAguard: pv_doc_aguard, docComp: pv_doc_comp },
+        juridico: { producao: jur_producao, revisao: jur_revisao, protocolos: jur_protocolos, taxa: jur_taxa },
+        gestao: { cac: gestao_cac, custoProt: gestao_custo_prot, estoque: gestao_estoque, totalCost },
+        small: {
+            com: { n5: small_com_n5 },
+            pv: { n1: small_pv_n1, n2: small_pv_n2, n3m: small_pv_n3m, n3f: small_pv_n3f, n4: small_pv_n4, n5: small_pv_n5 },
+            sup: { aguard: small_sup_aguard, final: small_sup_final },
+            fin: { aguard: small_fin_aguard, acordo: small_fin_acordo }
+        },
+        dynamicStats,
+        filteredMetrics
+    };
+  }, [metrics, currentRange, investments]);
+
+  const handleUnlock = () => {
+    const pin = window.prompt("Insira o PIN de acesso à Gestão:");
+    if (pin === "1234") { // Você pode trocar esse PIN aqui
+        setIsGestaoUnlocked(true);
+        setPinError(false);
+    } else if (pin !== null) {
+        alert("PIN Incorreto. Acesso negado.");
+        setPinError(true);
+    }
+  };
+
+  const chartData = useMemo(() => {
+    if (!stats) return [];
+    const dailyMap = new Map();
+    stats.filteredMetrics.forEach(m => {
+        const date = String(m.data).substring(5, 10);
+        const existing = dailyMap.get(date) || { date, leads: 0, contratos: 0 };
+        existing.leads += 1;
+        existing.contratos += (Number(m.contratos_fechados) || 0);
+        dailyMap.set(date, existing);
+    });
+    return Array.from(dailyMap.values());
+  }, [stats]);
+
+  if (isRefreshing && metrics.length === 0) {
+      return (
+          <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-500 gap-4">
+              <Loader2 className="w-10 h-10 animate-spin text-emerald-500" />
+              <p className="text-white font-bold text-lg tracking-widest">LEADFLOW</p>
+          </div>
+      );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 p-4 md:p-8 pt-16">
+      <header className="flex flex-col xl:flex-row xl:items-center justify-between mb-10 gap-6">
+        <div>
+          <h1 className="text-3xl font-black text-white flex items-center gap-3 tracking-tight">
+             <div className="p-2 bg-emerald-500 rounded-xl shadow-lg shadow-emerald-500/20">
+                <Target className="text-slate-950 w-6 h-6" />
+             </div>
+             LeadFlow <span className="text-emerald-500">Analytics</span>
+          </h1>
+          <p className="text-slate-500 text-sm mt-2 font-medium">
+            Monitorando: <span className="text-slate-300">dashboard_diario</span> • {currentRange.label}
+          </p>
+        </div>
+
+        <div className="flex flex-col md:flex-row gap-4 items-center">
+             <div className="flex bg-slate-900/50 rounded-xl p-1 border border-slate-800">
+                <button onClick={() => setActiveTab('strategic')} className={`px-5 py-2.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'strategic' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>ESTRATÉGICO</button>
+                <button onClick={() => setActiveTab('full')} className={`px-5 py-2.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'full' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>RAIO-X</button>
+             </div>
+             <div className="flex items-center gap-2">
+                <button onClick={onOpenSettings} className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-emerald-500 transition-all shadow-lg"><Settings className="w-5 h-5" /></button>
+                <button onClick={onRefresh} className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-emerald-500 transition-all shadow-lg"><RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} /></button>
+             </div>
+        </div>
+      </header>
+
+      {stats && activeTab === 'strategic' && (
+        <div className="space-y-12 animate-in fade-in duration-500">
+            
+            {/* GRUPO 1: COMERCIAL */}
+            <section>
+                <div className="flex items-center gap-3 mb-6">
+                    <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
+                        <Users className="w-4 h-4 text-blue-500" /> COMERCIAL
+                    </h3>
+                    <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <KPICard title="AGUARDANDO ANÁLISE" value={stats.comercial.analise} icon={<Clock />} colorClass="text-blue-400" />
+                    <KPICard title="FOLLOW-UPS REALIZADOS" value={stats.comercial.follow} subValue="(+ Realizados)" icon={<RefreshCw />} colorClass="text-indigo-400" />
+                    <KPICard title="CONTRATOS FECHADOS" value={stats.comercial.contratos} icon={<FileCheck />} colorClass="text-emerald-400" />
+                    <KPICard title="TAXA DE CONVERSÃO" value={`${stats.comercial.taxa}%`} icon={<Target />} colorClass="text-purple-400" />
+                </div>
+            </section>
 
-                <div className="flex flex-col md:flex-row gap-4 items-center">
-                    {/* Navegação de Tabs */}
-                    <div className="flex bg-slate-900/50 backdrop-blur rounded-xl p-1 border border-slate-800 shadow-inner">
-                        <button onClick={() => setActiveTab('strategic')} className={`px-5 py-2.5 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${activeTab === 'strategic' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
-                            <BarChart3 className="w-4 h-4" /> ESTRATÉGICO
-                        </button>
-                        <button onClick={() => setActiveTab('full')} className={`px-5 py-2.5 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${activeTab === 'full' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
-                            <LayoutGrid className="w-4 h-4" /> RAIO-X COMPLETO
-                        </button>
-                    </div>
+            {/* GRUPO 2: PÓS-VENDA */}
+            <section>
+                <div className="flex items-center gap-3 mb-6">
+                    <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-indigo-500" /> PÓS-VENDA
+                    </h3>
+                    <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <KPICard title="CLIENTES PENDENTES" value={stats.posVenda.pendentes} subValue="Total no setor" icon={<Users />} colorClass="text-slate-400" />
+                    <KPICard title="ONBOARD REALIZADO" value={stats.posVenda.onboard} icon={<CheckCircle />} colorClass="text-emerald-400" />
+                    <KPICard title="AGUARDANDO AGENDAMENTO" value={stats.posVenda.agendamento} icon={<Calendar />} colorClass="text-orange-400" />
+                    <KPICard title="AGUARDANDO DOCUMENTAÇÃO" value={stats.posVenda.docAguard} icon={<FileText />} colorClass="text-blue-400" />
+                    <KPICard title="DOCUMENTAÇÃO COMPLETA" value={stats.posVenda.docComp} icon={<CheckCircle />} colorClass="text-indigo-400" />
+                </div>
+            </section>
 
-                    {/* Seletor de Data */}
-                    <div className="flex items-center gap-2">
-                        <div className="relative">
-                            <button
-                                onClick={() => setShowDatePicker(!showDatePicker)}
-                                className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition-all shadow-lg"
-                            >
-                                <Calendar className="w-4 h-4 text-emerald-500" />
-                                {currentRange.label}
-                                <ChevronDown className={`w-3 h-3 transition-transform ${showDatePicker ? 'rotate-180' : ''}`} />
-                            </button>
+            {/* GRUPO 3: JURÍDICO */}
+            <section>
+                <div className="flex items-center gap-3 mb-6">
+                    <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
+                        <Briefcase className="w-4 h-4 text-amber-500" /> JURÍDICO
+                    </h3>
+                    <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <KPICard title="PRODUÇÃO DE INICIAL" value={stats.juridico.producao} icon={<Clock />} colorClass="text-amber-400" />
+                    <KPICard title="REVISÃO DE INICIAL" value={stats.juridico.revisao} icon={<FileText />} colorClass="text-blue-400" />
+                    <KPICard title="PROCESSOS PROTOCOLADOS" value={stats.juridico.protocolos} icon={<Archive />} colorClass="text-emerald-400" />
+                    <KPICard title="TAXA APROVEITAMENTO" value={`${stats.juridico.taxa}%`} subValue="Protocolados vs Fechados" icon={<TrendingUp />} colorClass="text-purple-400" />
+                </div>
+            </section>
 
-                            {showDatePicker && (
-                                <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-2xl z-50 animate-in fade-in zoom-in duration-200">
-                                    <div className="grid grid-cols-2 gap-2 mb-4">
-                                        {['7 Dias', '15 Dias', '30 Dias', 'Personalizado'].map((l) => (
-                                            <button
-                                                key={l}
-                                                onClick={() => {
-                                                    if (l === 'Personalizado') return;
-                                                    const end = new Date();
-                                                    const start = new Date();
-                                                    const days = parseInt(l);
-                                                    start.setDate(end.getDate() - (days - 1));
-                                                    onRangeChange({ start, end, label: l });
-                                                    setShowDatePicker(false);
-                                                }}
-                                                className={`px-3 py-2 text-[10px] font-bold rounded-lg border transition-all ${currentRange.label === l ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'}`}
-                                            >
-                                                {l}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    <div className="space-y-3 pt-3 border-t border-slate-800">
-                                        <div className="space-y-1">
-                                            <label className="text-[9px] font-black text-slate-500 uppercase">Início</label>
-                                            <input
-                                                type="date"
-                                                value={toLocalISO(currentRange.start)}
-                                                onChange={(e) => handleCustomDateChange('start', e.target.value)}
-                                                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-emerald-500 outline-none"
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[9px] font-black text-slate-500 uppercase">Fim</label>
-                                            <input
-                                                type="date"
-                                                value={toLocalISO(currentRange.end)}
-                                                onChange={(e) => handleCustomDateChange('end', e.target.value)}
-                                                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-emerald-500 outline-none"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
+            {/* GRUPO 4: GESTÃO (PRIVADO) */}
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                <div className="xl:col-span-2 space-y-8">
+                    <section className="relative">
+                        <div className="flex items-center justify-between mb-6">
+                            <div className="flex items-center gap-3">
+                                <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
+                                    <DollarSign className="w-4 h-4 text-emerald-500" /> GESTÃO (DADOS INTERNOS)
+                                </h3>
+                                {!isGestaoUnlocked && <Lock className="w-3 h-3 text-rose-500" />}
+                                {isGestaoUnlocked && <Unlock className="w-3 h-3 text-emerald-500" />}
+                            </div>
+                            
+                            {!isGestaoUnlocked && (
+                                <button 
+                                    onClick={handleUnlock}
+                                    className="text-[9px] font-black text-emerald-500 hover:text-white border border-emerald-500/20 px-3 py-1 rounded-lg uppercase tracking-widest transition-all"
+                                >
+                                    Desbloquear Dados Sensíveis
+                                </button>
                             )}
                         </div>
 
-                        <button onClick={onOpenSettings} className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-emerald-500 transition-all hover:scale-105 shadow-lg"><Settings className="w-5 h-5" /></button>
-                        <button onClick={onRefresh} className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-emerald-500 transition-all hover:scale-105 shadow-lg"><RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} /></button>
-                    </div>
-                </div>
-            </header>
-
-            {!stats && (
-                <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-20 text-center animate-pulse">
-                    <DatabaseZap className="w-16 h-16 text-slate-800 mx-auto mb-4" />
-                    <p className="text-slate-600 font-bold uppercase tracking-widest">Nenhum dado processado</p>
-                </div>
-            )}
-
-            {stats && activeTab === 'strategic' && (
-                <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    {/* COMERCIAL - Indicadores Grandes */}
-                    <section>
-                        <div className="flex items-center gap-3 mb-6">
-                            <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                                <Users className="w-4 h-4 text-blue-500" /> COMERCIAL
-                            </h3>
-                            <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
+                        <div className={`grid grid-cols-1 md:grid-cols-3 gap-6 transition-all duration-700 ${!isGestaoUnlocked ? 'blur-md pointer-events-none opacity-40 select-none' : 'blur-0'}`}>
+                            <KPICard title="CAC" value={`R$ ${stats.gestao.cac.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`} subValue="Custo Aquisição Cliente" icon={<Users />} colorClass="text-slate-300" />
+                            <KPICard title="CUSTO POR PROTOCOLO" value={`R$ ${stats.gestao.custoProt.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`} icon={<Archive />} colorClass="text-slate-300" />
+                            <KPICard title="ESTOQUE DE PROCESSOS" value={stats.gestao.estoque} subValue="Protocolados - Arquivados" icon={<Briefcase />} colorClass="text-emerald-400" />
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                            <KPICard title="AGUARDANDO ANÁLISE" value={stats.com.aguardAnalise} icon={<Clock />} colorClass="text-amber-400" />
-                            <KPICard title="FOLLOW-UPS REALIZADOS" value={stats.com.followUps} icon={<CheckCircle />} colorClass="text-indigo-400" />
-                            <KPICard title="CONTRATOS FECHADOS" value={stats.com.contratos} icon={<FileCheck />} colorClass="text-emerald-400" />
-                            <KPICard title="TAXA DE CONVERSÃO" value={`${stats.com.taxa}%`} subValue="Performance Funil" icon={<Target />} colorClass="text-purple-400" />
-                        </div>
-                    </section>
-
-                    {/* FLUXO N - Indicadores Pequenos */}
-                    <section>
-                        <div className="flex items-center gap-3 mb-6">
-                            <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                                <LayoutGrid className="w-4 h-4 text-rose-500" /> FLUXO N (Etapas Numeradas)
-                            </h3>
-                            <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-                            <KPICard title="N1 - ONBOARD PEND." value={stats.fluxoN.n1} icon={<Clock />} colorClass="text-rose-400" />
-                            <KPICard title="N2 - AGENDAMENTO" value={stats.fluxoN.n2} icon={<Calendar />} colorClass="text-orange-400" />
-                            <KPICard title="N3 - REUNIÃO MARC." value={stats.fluxoN.n3m} icon={<Clock />} colorClass="text-amber-400" />
-                            <KPICard title="N3 - REUNIÃO FEITA" value={stats.fluxoN.n3f} icon={<CheckCircle />} colorClass="text-yellow-400" />
-                            <KPICard title="N4 - AGUARD. DOC." value={stats.fluxoN.n4} icon={<FileText />} colorClass="text-blue-400" />
-                            <KPICard title="N5 - ORGANIZANDO DCS" value={stats.fluxoN.n5dcs} icon={<Briefcase />} colorClass="text-indigo-400" />
-                            <KPICard title="N5 - CONTRATO ASS." value={stats.fluxoN.n5contrato} icon={<FileCheck />} colorClass="text-emerald-400" />
-                        </div>
-                    </section>
-
-                    {/* PÓS-VENDA - Indicadores Grandes */}
-                    <section>
-                        <div className="flex items-center gap-3 mb-6">
-                            <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                                <Users className="w-4 h-4 text-cyan-500" /> PÓS-VENDA
-                            </h3>
-                            <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                            <KPICard title="CLIENTES PENDENTES" value={stats.pv.clientesPend} subValue="Total no Setor" icon={<Users />} colorClass="text-slate-400" />
-                            <KPICard title="ONBOARD REALIZADO" value={stats.pv.onboardReal} icon={<CheckCircle />} colorClass="text-emerald-400" />
-                            <KPICard title="AGUARDANDO AGEND." value={stats.pv.aguardAgend} icon={<Calendar />} colorClass="text-amber-400" />
-                            <KPICard title="AGUARDANDO DOC." value={stats.pv.aguardDoc} icon={<FileText />} colorClass="text-orange-400" />
-                            <KPICard title="DOCUMENTAÇÃO COMPL." value={stats.pv.docCompleta} icon={<FileCheck />} colorClass="text-green-400" />
-                        </div>
-                    </section>
-
-                    {/* JURÍDICO - Nova Seção Separada */}
-                    <section>
-                        <div className="flex items-center gap-3 mb-6">
-                            <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                                <Briefcase className="w-4 h-4 text-violet-500" /> JURÍDICO
-                            </h3>
-                            <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                            <KPICard title="PRODUÇÃO DE INICIAL" value={stats.juridico.producao} icon={<FileText />} colorClass="text-blue-400" />
-                            <KPICard title="REVISÃO DE INICIAL" value={stats.juridico.revisao} icon={<FileCheck />} colorClass="text-indigo-400" />
-                            <KPICard title="PROCESSOS PROTOCOL." value={stats.juridico.protocolados} icon={<Briefcase />} colorClass="text-violet-400" />
-                            <KPICard title="TAXA APROVEITAMENTO" value={`${stats.juridico.taxaAprov}%`} subValue="Fechados / Protocolados" icon={<Target />} colorClass="text-emerald-400" />
-                        </div>
-                    </section>
-
-                    {/* SUPORTE - Nova Seção */}
-                    <section>
-                        <div className="flex items-center gap-3 mb-6">
-                            <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                                <Users className="w-4 h-4 text-teal-500" /> SUPORTE
-                            </h3>
-                            <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <KPICard title="AGUARDANDO ATENDIMENTO" value={stats.suporte.aguardando} icon={<Clock />} colorClass="text-amber-400" />
-                            <KPICard title="ATENDIMENTOS FINALIZADOS" value={stats.suporte.finalizados} icon={<CheckCircle />} colorClass="text-emerald-400" />
-                        </div>
-                    </section>
-
-                    {/* FINANCEIRO - Nova Seção */}
-                    <section>
-                        <div className="flex items-center gap-3 mb-6">
-                            <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                                <DollarSign className="w-4 h-4 text-green-500" /> FINANCEIRO
-                            </h3>
-                            <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <KPICard title="AGUARDANDO ATENDIMENTO" value={stats.financeiro.aguardAtend} icon={<Clock />} colorClass="text-amber-400" />
-                            <KPICard title="CONTATO INICIAL PENDENTE" value={stats.financeiro.contatoInic} icon={<FileText />} colorClass="text-orange-400" />
-                        </div>
-                    </section>
-
-                    {/* GESTÃO - Nova Seção com Cálculos */}
-                    <section>
-                        <div className="flex items-center gap-3 mb-6">
-                            <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                                <PieChart className="w-4 h-4 text-purple-500" /> GESTÃO
-                            </h3>
-                            <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <KPICard
-                                title="CAC (CUSTO AQUISIÇÃO)"
-                                value={`R$ ${stats.gestao.cac.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
-                                subValue="Investimento / Contratos"
-                                icon={<DollarSign />}
-                                colorClass="text-slate-300"
-                            />
-                            <KPICard
-                                title="CUSTO POR PROTOCOLO"
-                                value={`R$ ${stats.gestao.custoPorProtocolo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
-                                subValue="Investimento / Protocolados"
-                                icon={<PieChart />}
-                                colorClass="text-blue-300"
-                            />
-                            <KPICard
-                                title="ESTOQUE DE PROCESSOS"
-                                value={stats.gestao.estoque}
-                                subValue="Protocolados - Arquivados"
-                                icon={<Briefcase />}
-                                colorClass={stats.gestao.estoque > 0 ? "text-amber-400" : "text-green-400"}
-                            />
-                        </div>
-                    </section>
-
-                    {/* GRÁFICO E ROI */}
-                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                        <div className="xl:col-span-2 bg-slate-900/50 border border-slate-800 rounded-3xl p-8 shadow-2xl relative overflow-hidden">
-                            <h2 className="text-white text-lg font-black mb-8 flex items-center gap-2">
-                                <BarChart3 className="w-5 h-5 text-emerald-500" /> EVOLUÇÃO DIÁRIA
-                            </h2>
-                            <div className="h-[300px]">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={chartData}>
-                                        <defs>
-                                            <linearGradient id="colorLeads" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
-                                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                                            </linearGradient>
-                                        </defs>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                                        <XAxis dataKey="date" stroke="#475569" fontSize={10} tickLine={false} axisLine={false} />
-                                        <YAxis stroke="#475569" fontSize={10} tickLine={false} axisLine={false} />
-                                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)' }} />
-                                        <Area name="Leads" type="monotone" dataKey="leads" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorLeads)" />
-                                        <Area name="Contratos" type="monotone" dataKey="contratos" stroke="#10b981" strokeWidth={2} fill="transparent" />
-                                    </AreaChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
-
-                        <div className="space-y-6">
-                            <KPICard title="INVESTIMENTO TOTAL" value={`R$ ${stats.fin.cost.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} subValue="Ads/Tráfego no Período" icon={<DollarSign />} colorClass="text-slate-300" />
-                            <KPICard title="ROI ESTIMADO" value={`${stats.fin.roi.toFixed(1)}%`} subValue={`Base: R$ ${financialSettings.average_ticket.toLocaleString('pt-BR')}`} icon={<Target />} colorClass={stats.fin.roi > 0 ? "text-emerald-400" : "text-rose-400"} />
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {stats && activeTab === 'full' && (
-                <div className="space-y-6 animate-in fade-in duration-500">
-                    <div className="relative max-w-md mx-auto mb-10 group">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5 group-focus-within:text-emerald-500 transition-colors" />
-                        <input
-                            type="text"
-                            placeholder="Filtrar colunas do CSV..."
-                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-12 pr-4 py-4 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all placeholder:text-slate-600 shadow-xl"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {stats.dynamic.filter(s => s.label.toLowerCase().includes(searchTerm.toLowerCase())).map((item) => (
-                            <div key={item.key} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 hover:border-emerald-500/50 transition-all group flex flex-col justify-between h-40 hover:shadow-2xl hover:shadow-emerald-500/5">
-                                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 line-clamp-2 group-hover:text-emerald-500 transition-colors">{item.label}</h4>
-                                <div className="flex justify-between items-end">
-                                    <div>
-                                        <span className="text-3xl font-black text-white block tracking-tighter">{item.total}</span>
-                                        <span className="text-[9px] font-bold text-slate-600 uppercase flex items-center gap-1"><DatabaseZap className="w-3 h-3" /> {item.labelType}</span>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="text-lg font-bold text-emerald-500 block">{item.today}</span>
-                                        <span className="text-[9px] font-bold text-slate-600 uppercase">Hoje</span>
-                                    </div>
+                        
+                        {!isGestaoUnlocked && (
+                            <div className="absolute inset-0 flex items-center justify-center z-20 pt-8">
+                                <div className="bg-slate-900/80 backdrop-blur-md border border-slate-700 p-6 rounded-2xl text-center shadow-2xl">
+                                    <Lock className="w-8 h-8 text-rose-500 mx-auto mb-3" />
+                                    <p className="text-white font-bold text-sm">ACESSO RESTRITO AO CLIENTE</p>
+                                    <p className="text-slate-500 text-xs mt-1">Os dados de CAC e Estocagem são confidenciais.</p>
                                 </div>
                             </div>
-                        ))}
+                        )}
+                    </section>
+
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 shadow-2xl">
+                        <h2 className="text-white text-lg font-black mb-8 flex items-center gap-2">
+                            <BarChart3 className="w-5 h-5 text-emerald-500" /> EVOLUÇÃO DIÁRIA
+                        </h2>
+                        <div className="h-[250px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={chartData}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                                    <XAxis dataKey="date" stroke="#475569" fontSize={10} axisLine={false} />
+                                    <YAxis stroke="#475569" fontSize={10} axisLine={false} />
+                                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '12px' }} />
+                                    <Area type="monotone" dataKey="leads" stroke="#3b82f6" fill="#3b82f610" strokeWidth={2} />
+                                    <Area type="monotone" dataKey="contratos" stroke="#10b981" fill="#10b98110" strokeWidth={2} />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
                     </div>
                 </div>
-            )}
+
+                {/* INDICADORES MENORES (FLUXO) */}
+                <div className="space-y-8">
+                    <section>
+                        <h3 className="text-slate-500 text-[9px] font-black uppercase mb-4 tracking-widest flex items-center gap-2"><Filter className="w-3 h-3" /> INDICADORES DE FLUXO</h3>
+                        <div className="space-y-3">
+                            <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex justify-between items-center hover:border-emerald-500/30 transition-all">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">Comercial: N5 - Contrato Assinado</span>
+                                <span className="text-sm font-black text-white">{stats.small.com.n5}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-center">
+                                    <div className="text-[8px] font-black text-slate-500 mb-1">N1 - ONBOARD PEND.</div>
+                                    <div className="text-sm font-black text-rose-400">{stats.small.pv.n1}</div>
+                                </div>
+                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-center">
+                                    <div className="text-[8px] font-black text-slate-500 mb-1">N2 - AGUARD. AGEND.</div>
+                                    <div className="text-sm font-black text-orange-400">{stats.small.pv.n2}</div>
+                                </div>
+                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-center">
+                                    <div className="text-[8px] font-black text-slate-500 mb-1">N3 - REUNIÃO MARC.</div>
+                                    <div className="text-sm font-black text-blue-400">{stats.small.pv.n3m}</div>
+                                </div>
+                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-center">
+                                    <div className="text-[8px] font-black text-slate-500 mb-1">N3 - REUNIÃO FEITA</div>
+                                    <div className="text-sm font-black text-indigo-400">{stats.small.pv.n3f}</div>
+                                </div>
+                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-center">
+                                    <div className="text-[8px] font-black text-slate-500 mb-1">N4 - AGUARD. DOC.</div>
+                                    <div className="text-sm font-black text-blue-300">{stats.small.pv.n4}</div>
+                                </div>
+                                <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg text-center">
+                                    <div className="text-[8px] font-black text-slate-500 mb-1">N5 - ORGANIZANDO DCS</div>
+                                    <div className="text-sm font-black text-emerald-400">{stats.small.pv.n5}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section>
+                        <h3 className="text-slate-500 text-[9px] font-black uppercase mb-4 tracking-widest flex items-center gap-2"><Headphones className="w-3 h-3" /> SUPORTE</h3>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl">
+                                <span className="text-[8px] font-bold text-slate-500 block mb-1 uppercase">Aguardando Atend.</span>
+                                <span className="text-lg font-black text-white">{stats.small.sup.aguard}</span>
+                            </div>
+                            <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl">
+                                <span className="text-[8px] font-bold text-slate-500 block mb-1 uppercase">Finalizados</span>
+                                <span className="text-lg font-black text-emerald-400">{stats.small.sup.final}</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section>
+                        <h3 className="text-slate-500 text-[9px] font-black uppercase mb-4 tracking-widest flex items-center gap-2"><Landmark className="w-3 h-3" /> FINANCEIRO</h3>
+                        <div className="space-y-3">
+                            <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase">Aguardando Financeiro</span>
+                                <span className="text-lg font-black text-white">{stats.small.fin.aguard}</span>
+                            </div>
+                            <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase">Acordo Pendente</span>
+                                <span className="text-lg font-black text-orange-400">{stats.small.fin.acordo}</span>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
         </div>
-    );
+      )}
+
+      {stats && activeTab === 'full' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 animate-in zoom-in duration-300">
+            {stats.dynamicStats.map((item) => (
+                <div key={item.key} className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex justify-between items-center hover:border-emerald-500/50 transition-all">
+                    <div>
+                        <div className="text-[9px] font-black text-slate-500 uppercase tracking-wider">{item.label}</div>
+                        <div className="text-xl font-black text-white">{item.total}</div>
+                    </div>
+                    <div className="text-right">
+                        <div className="text-[8px] font-bold text-slate-600 uppercase">Hoje</div>
+                        <div className="text-sm font-black text-emerald-500">{item.today}</div>
+                    </div>
+                </div>
+            ))}
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default Dashboard;

@@ -1,43 +1,39 @@
 import React from 'react';
 
 export interface DashboardMetric {
-  data: string; // Coluna de data no lead
-  telefone: string | number; 
-  contratos_fechados: number;
+  data: string;
+  id: string | number;
   
   // Comercial
   aguardando_analise: number;
   followups_realizados: number;
-  
-  // Fluxo N (Etapas Numeradas)
+  contratos_fechados: number;
+  n5_contrato_assinado: number;
+
+  // Pós-Venda
+  clientes_pendentes_total: number;
+  onboard_realizado: number;
   n1_onboard_pendente: number;
   n2_aguardando_agendamento: number;
   n3_reuniao_marcada: number;
   n3_reuniao_feita: number;
   n4_aguardando_documentacao: number;
   n5_organizando_dcs: number;
-  n5_contrato_assinado: number;
-  
-  // Pós-Venda
-  clientes_pendentes_total: number;
-  onboard_realizado: number;
-  aguardando_agendamento: number;
-  aguardando_documentacao: number;
   documentacao_completa: number;
-  
+
   // Jurídico
   producao_de_inicial: number;
   revisao_de_inicial: number;
   processos_protocolados: number;
-  processos_arquivados: number;
-  
-  // Suporte (placeholders - adicionar ao Supabase)
-  suporte_aguardando_atendimento?: number;
-  suporte_atendimentos_finalizados?: number;
-  
-  // Financeiro (placeholders - adicionar ao Supabase)
-  financeiro_aguardando_atendimento?: number;
-  financeiro_contato_inicial_pendente?: number;
+  arquivados: number;
+
+  // Suporte
+  suporte_aguardando_atendimento: number;
+  suporte_atendimentos_finalizados: number;
+
+  // Financeiro
+  financeiro_aguardando_atendimento: number;
+  contato_inicial_acordo_pendente: number;
 
   [key: string]: string | number | undefined;
 }
@@ -83,5 +79,5 @@ export interface SettingsModalProps {
   investments: Investment[];
   onSaveSettings: (settings: FinancialSettings) => Promise<void>;
   onRefreshData: () => void;
-  config: SupabaseConfig; // Adicionado para garantir que o modal use as mesmas chaves do App
+  config: SupabaseConfig;
 }
