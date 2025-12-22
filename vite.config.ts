@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  base: '/Dash-Dr.-Pablo/', // GitHub Pages base path
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './'),
