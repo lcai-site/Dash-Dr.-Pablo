@@ -1,75 +1,54 @@
 import { SupabaseConfig, DashboardMetric, DateRange, FinancialSettings, Investment } from '../types';
 
 const TABLES = {
-  METRICS: 'leads',
+  PRIMARY: 'dashboard_diario',
+  SECONDARY: 'leads',
   INVESTMENTS: 'investimentos',
   SETTINGS: 'financial_settings'
 };
 
-// Função para converter qualquer formato de data do CSV (BR, ISO, _00:00:00) em um objeto Date válido para comparação
 const parseFlexibleDate = (dateStr: any): Date | null => {
   if (!dateStr) return null;
   try {
     const clean = String(dateStr).split('_')[0].split('T')[0].split(' ')[0].trim();
-    
-    // Caso DD/MM/YYYY
     if (clean.includes('/')) {
       const [d, m, y] = clean.split('/');
       return new Date(Number(y), Number(m) - 1, Number(d), 12, 0, 0);
     }
-    
-    // Caso YYYY-MM-DD
     if (clean.includes('-')) {
       const [y, m, d] = clean.split('-');
-      // Verifica se o primeiro é ano ou dia
       if (y.length === 4) {
         return new Date(Number(y), Number(m) - 1, Number(d), 12, 0, 0);
       } else {
         return new Date(Number(d), Number(m) - 1, Number(y), 12, 0, 0);
       }
     }
-    return new Date(dateStr);
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? null : d;
   } catch (e) {
     return null;
   }
 };
 
-const handleSupabaseError = async (response: Response, context: string) => {
-  if (!response.ok) {
-    let errorDetail = "";
-    try {
-      const errorJson = await response.json();
-      errorDetail = errorJson.message || errorJson.hint || errorJson.details || response.statusText;
-    } catch (e) {
-      errorDetail = response.statusText || "Erro de rede ou CORS";
-    }
-    throw new Error(`${context}: ${errorDetail}`);
-  }
-};
-
 const normalizeLeadValue = (val: any): number => {
   if (val === null || val === undefined || val === "") return 0;
-  if (typeof val === 'number') return val > 0 ? 1 : 0;
-  
+  if (typeof val === 'number') return val;
   const str = String(val).toLowerCase().trim();
   const positiveValues = ['sim', 's', 'x', 'v', 'verdadeiro', 'true', 'assinado', 'fechado', 'ok', 'concluido', 'yes', '1'];
-  
   if (positiveValues.includes(str)) return 1;
   const parsed = parseFloat(str);
-  if (!isNaN(parsed) && parsed > 0) return 1;
-  return 0;
+  return isNaN(parsed) ? 0 : parsed;
 };
 
-export const fetchDashboardMetrics = async (
-  config: SupabaseConfig, 
-  range: DateRange
-): Promise<DashboardMetric[]> => {
-  const baseUrl = config.url.replace(/\/$/, "");
-  
-  // No fetch inicial, pegamos um range maior para garantir que o parse manual local funcione
-  const endpoint = `${baseUrl}/rest/v1/${TABLES.METRICS}?select=*&order=data.asc`;
+// Limpa a URL base removendo caminhos como /rest/v1/leads
+const getBaseUrl = (configUrl: string) => {
+    return configUrl.replace(/\/rest\/v1\/.*$/, "").replace(/\/$/, "");
+};
 
-  try {
+const makeRequest = async (config: SupabaseConfig, table: string) => {
+    const baseUrl = getBaseUrl(config.url);
+    const endpoint = `${baseUrl}/rest/v1/${table}?select=*&order=data.asc`;
+    
     const response = await fetch(endpoint, {
       method: 'GET',
       headers: {
@@ -78,11 +57,32 @@ export const fetchDashboardMetrics = async (
         'Content-Type': 'application/json'
       }
     });
+    return response;
+};
 
-    await handleSupabaseError(response, `Erro ao buscar dados na tabela '${TABLES.METRICS}'`);
+export const fetchDashboardMetrics = async (
+  config: SupabaseConfig, 
+  range: DateRange
+): Promise<DashboardMetric[]> => {
+  try {
+    // Tenta primeiro a tabela dashboard_diario
+    let response = await makeRequest(config, TABLES.PRIMARY);
+    
+    // Se a tabela primária não existir (404 ou erro de schema cache)
+    if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        if (response.status === 404 || (errJson.message && errJson.message.includes('cache'))) {
+            console.warn(`Tabela '${TABLES.PRIMARY}' não encontrada. Tentando fallback para '${TABLES.SECONDARY}'...`);
+            response = await makeRequest(config, TABLES.SECONDARY);
+        }
+    }
+
+    if (!response.ok) {
+        const errorJson = await response.json().catch(() => ({}));
+        throw new Error(errorJson.message || `Erro ${response.status}: Não foi possível acessar as tabelas de dados.`);
+    }
 
     const data: any[] = await response.json();
-
     return data.map(record => {
         const formatted: any = {};
         Object.keys(record).forEach(key => {
@@ -93,19 +93,17 @@ export const fetchDashboardMetrics = async (
                 formatted[key] = normalizeLeadValue(rawVal);
             }
         });
-        // Adicionamos um campo de data normalizada para facilitar a vida do componente
         formatted._parsedDate = parseFlexibleDate(record.data);
         return formatted as DashboardMetric;
     });
 
   } catch (error: any) {
-    console.error("Supabase Fetch Error:", error);
     throw error;
   }
 };
 
 export const fetchFinancialSettings = async (config: SupabaseConfig): Promise<FinancialSettings> => {
-  const baseUrl = config.url.replace(/\/$/, "");
+  const baseUrl = getBaseUrl(config.url);
   const endpoint = `${baseUrl}/rest/v1/${TABLES.SETTINGS}?select=*&limit=1&order=id.desc`;
   try {
     const response = await fetch(endpoint, {
@@ -123,7 +121,7 @@ export const fetchFinancialSettings = async (config: SupabaseConfig): Promise<Fi
 };
 
 export const saveFinancialSettings = async (config: SupabaseConfig, settings: FinancialSettings): Promise<void> => {
-    const baseUrl = config.url.replace(/\/$/, "");
+    const baseUrl = getBaseUrl(config.url);
     const endpoint = `${baseUrl}/rest/v1/${TABLES.SETTINGS}`;
     let targetId = settings.id;
     if (!targetId) {
@@ -145,11 +143,10 @@ export const saveFinancialSettings = async (config: SupabaseConfig, settings: Fi
         headers: { 'apikey': config.key, 'Authorization': `Bearer ${config.key}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
         body: JSON.stringify({ average_ticket: settings.average_ticket })
     });
-    await handleSupabaseError(response, "Erro ao salvar ticket");
 };
 
 export const fetchInvestments = async (config: SupabaseConfig): Promise<Investment[]> => {
-  const baseUrl = config.url.replace(/\/$/, "");
+  const baseUrl = getBaseUrl(config.url);
   const endpoint = `${baseUrl}/rest/v1/${TABLES.INVESTMENTS}?select=*&order=data_inicio.desc`;
   try {
     const response = await fetch(endpoint, {
@@ -168,33 +165,30 @@ export const fetchInvestments = async (config: SupabaseConfig): Promise<Investme
 };
 
 export const addInvestment = async (config: SupabaseConfig, investment: Omit<Investment, 'id'>): Promise<void> => {
-  const baseUrl = config.url.replace(/\/$/, "");
+  const baseUrl = getBaseUrl(config.url);
   const endpoint = `${baseUrl}/rest/v1/${TABLES.INVESTMENTS}`;
-  const response = await fetch(endpoint, {
+  await fetch(endpoint, {
     method: 'POST',
-    headers: { 'apikey': config.key, 'Authorization': `Bearer ${config.key}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+    headers: { 'apikey': config.key, 'Authorization': `Bearer ${config.key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(investment)
   });
-  await handleSupabaseError(response, "Erro ao salvar investimento");
 };
 
 export const updateInvestment = async (config: SupabaseConfig, id: string | number, investment: Omit<Investment, 'id'>): Promise<void> => {
-  const baseUrl = config.url.replace(/\/$/, "");
+  const baseUrl = getBaseUrl(config.url);
   const endpoint = `${baseUrl}/rest/v1/${TABLES.INVESTMENTS}?id=eq.${id}`;
-  const response = await fetch(endpoint, {
+  await fetch(endpoint, {
     method: 'PATCH',
-    headers: { 'apikey': config.key, 'Authorization': `Bearer ${config.key}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+    headers: { 'apikey': config.key, 'Authorization': `Bearer ${config.key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(investment)
   });
-  await handleSupabaseError(response, "Erro ao atualizar investimento");
 };
 
 export const deleteInvestment = async (config: SupabaseConfig, id: string | number): Promise<void> => {
-  const baseUrl = config.url.replace(/\/$/, "");
+  const baseUrl = getBaseUrl(config.url);
   const endpoint = `${baseUrl}/rest/v1/${TABLES.INVESTMENTS}?id=eq.${id}`;
-  const response = await fetch(endpoint, {
+  await fetch(endpoint, {
     method: 'DELETE',
-    headers: { 'apikey': config.key, 'Authorization': `Bearer ${config.key}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' }
+    headers: { 'apikey': config.key, 'Authorization': `Bearer ${config.key}` }
   });
-  await handleSupabaseError(response, "Falha na exclusão");
 };
