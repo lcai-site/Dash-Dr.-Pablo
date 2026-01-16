@@ -3,10 +3,11 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
 import { 
-  Target, Users, FileCheck, RefreshCw, Settings, Calendar, DollarSign, Clock, CheckCircle, Loader2, BarChart3, Briefcase, ShieldCheck, TrendingUp, Headphones, Landmark, Archive, FileText, Lock, EyeOff, ShieldAlert, AlertCircle, X, ChevronRight, Info
+  Target, Users, FileCheck, RefreshCw, Settings, Calendar, DollarSign, Clock, CheckCircle, Loader2, BarChart3, Briefcase, ShieldCheck, TrendingUp, Headphones, Landmark, Archive, FileText, Lock, EyeOff, ShieldAlert, AlertCircle, X, ChevronRight, Info, Eye
 } from 'lucide-react';
 import { DashboardMetric, DateRange, FinancialSettings, Investment } from '../types';
 import KPICard from './KPICard';
+import MetricsFilterModal from './MetricsFilterModal';
 
 interface DashboardProps {
   metrics: DashboardMetric[];
@@ -21,6 +22,36 @@ interface DashboardProps {
 
 const toLocalISO = (date: Date) => date.toLocaleDateString('en-CA');
 
+// Lista constante de todas as labels possíveis para garantir consistência
+const ALL_METRIC_LABELS = [
+  'Total de Leads',
+  'Aguardando Análise',
+  'Oportunidade',
+  'Contratos Fechados',
+  'N5 Contrato Assinado',
+  'Taxa de Conversão',
+  'Taxa de Aproveitamento',
+  'Followups Realizados',
+  'Reunião Pendente',
+  'N3 Reunião Marcada',
+  'N3 Reunião Feita',
+  'Aguardando Agendamento',
+  'N2 Aguardando Agendamento',
+  'Aguardando Documentação',
+  'Documentação Completa',
+  'Produção de Inicial',
+  'Revisão de Inicial',
+  'Processos Protocolados',
+  'Estoque de Processos',
+  'Aguardando Atendimento (Suporte)',
+  'Atendimentos Finalizados (Suporte)',
+  'Clientes Pendentes Total',
+  'Contato Inicial Acordo Pendente',
+  'Aguardando Atendimento Financeiro',
+  'Custo Aquisição Cliente',
+  'Custo por Protocolo'
+];
+
 const Dashboard: React.FC<DashboardProps> = ({ 
     metrics, 
     financialSettings,
@@ -34,6 +65,10 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [activeTab, setActiveTab] = useState<'strategic' | 'full'>('strategic');
   const [isGestaoUnlocked, setIsGestaoUnlocked] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  
+  // Estado para filtros de métricas
+  const [visibleMetrics, setVisibleMetrics] = useState<string[]>(ALL_METRIC_LABELS);
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
 
   const stats = useMemo(() => {
     if (!metrics) return null;
@@ -43,7 +78,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     const rangeEnd = new Date(currentRange.end);
     rangeEnd.setHours(23,59,59,999);
 
-    // Filtra e ORDENA cronologicamente (importante pois a API agora retorna DESC)
+    // Filtra e ORDENA cronologicamente
     const filteredMetrics = metrics
         .filter(m => {
             const d = (m as any)._parsedDate;
@@ -57,7 +92,6 @@ const Dashboard: React.FC<DashboardProps> = ({
             return dateA - dateB;
         });
 
-    // Soma valores de colunas específicas com trim nas chaves para evitar erros de espaço
     const sumValues = (searchKeys: string[]): number => {
         const lowerSearchKeys = searchKeys.map(k => k.toLowerCase().trim());
         return filteredMetrics.reduce((acc, record) => {
@@ -71,7 +105,6 @@ const Dashboard: React.FC<DashboardProps> = ({
         }, 0);
     };
 
-    // Fallback: Conta registros baseados em texto na coluna 'status' (para quando não há colunas booleanas)
     const countByStatus = (keywords: string[]): number => {
         return filteredMetrics.filter(record => {
             const statusVal = String(record['status'] || '').toLowerCase();
@@ -79,29 +112,24 @@ const Dashboard: React.FC<DashboardProps> = ({
         }).length;
     };
 
-    // Helper que tenta somar colunas, se der zero, tenta contar pelo status
     const smartCount = (cols: string[], statusKeywords: string[]): number => {
         const colSum = sumValues(cols);
         if (colSum > 0) return colSum;
         return countByStatus(statusKeywords);
     };
 
-    // --- CÁLCULOS ESTRUTURAIS ---
-    
-    // Comercial
+    // --- CÁLCULOS ---
     const com_leads = filteredMetrics.length;
     const com_analise = sumValues(['aguardando_analise']);
     const com_oportunidade = sumValues(['oportunidade']);
     const com_contratos = sumValues(['contratos_fechados']);
     const com_n5_assinado = sumValues(['n5_contrato_assinado']);
-    const com_contratos_total = com_contratos + com_n5_assinado; // Para KPI Card
+    const com_contratos_total = com_contratos + com_n5_assinado;
     const com_taxa = com_leads > 0 ? ((com_contratos / com_leads) * 100).toFixed(2) : '0.00';
     
-    // Taxa de Aproveitamento: Contratos / Aguardando Análise (ou Oportunidade)
     const baseAproveitamento = com_analise > 0 ? com_analise : (com_oportunidade > 0 ? com_oportunidade : 1);
     const com_aproveitamento = ((com_contratos / baseAproveitamento) * 100).toFixed(2);
 
-    // Pós-Venda
     const pv_pendentes = sumValues(['clientes_pendentes_total']);
     const pv_reuniao_pendente_col = sumValues(['reuniao_pendente']);
     const pv_reuniao_marcada = sumValues(['n3_reuniao_marcada']);
@@ -111,19 +139,16 @@ const Dashboard: React.FC<DashboardProps> = ({
     const pv_doc_aguard = sumValues(['aguardando_documentacao']);
     const pv_doc_comp = sumValues(['documentacao_completa']);
 
-    // Jurídico
     const jur_producao = sumValues(['producao_de_inicial']);
     const jur_revisao = sumValues(['revisao_de_inicial']);
     const jur_protocolos = sumValues(['processos_protocolados']);
-    const jur_estoque = jur_producao + jur_revisao; // Estoque lógico
+    const jur_estoque = jur_producao + jur_revisao;
 
-    // Suporte & Financeiro
     const sup_aguardando = smartCount(['suporte_aguardando_atendimento'], ['suporte pendente']);
     const sup_finalizado = smartCount(['suporte_atendimentos_finalizados', 'atendimentos_finalizados'], ['suporte finalizado']);
     const fin_acordo_pendente = smartCount(['contato_inicial_acordo_pendente'], ['acordo pendente']);
     const fin_aguardando = smartCount(['aguardando_atendimento_financeiro', 'financeiro_aguardando_atendimento'], ['financeiro fila']);
 
-    // --- GESTÃO E CUSTOS ---
     const calculateTotalDailyCostForDate = (targetDateStr: string) => {
       return investments.reduce((total, inv) => {
         if (targetDateStr >= inv.data_inicio && targetDateStr <= inv.data_fim) {
@@ -147,40 +172,45 @@ const Dashboard: React.FC<DashboardProps> = ({
     const gestao_cac = com_contratos > 0 ? totalCost / com_contratos : 0;
     const gestao_custo_prot = jur_protocolos > 0 ? totalCost / jur_protocolos : 0;
 
-    // --- LISTA FIXA DE MÉTRICAS (VISÃO FULL - ORDEM SOLICITADA) ---
-    const explicitMetricsList = [
-        { label: 'Total de Leads', value: com_leads },
-        { label: 'Aguardando Análise', value: com_analise },
-        { label: 'Oportunidade', value: com_oportunidade },
-        { label: 'Contratos Fechados', value: com_contratos },
-        { label: 'N5 Contrato Assinado', value: com_n5_assinado },
-        { label: 'Taxa de Conversão', value: `${com_taxa}%` },
-        { label: 'Taxa de Aproveitamento', value: `${com_aproveitamento}%` },
-        { label: 'Followups Realizados', value: sumValues(['followups_realizados']) },
-        { label: 'Reunião Pendente', value: pv_reuniao_pendente_col },
-        { label: 'N3 Reunião Marcada', value: pv_reuniao_marcada },
-        { label: 'N3 Reunião Feita', value: pv_reuniao_feita },
-        { label: 'Aguardando Agendamento', value: pv_aguardando_agendamento },
-        { label: 'N2 Aguardando Agendamento', value: pv_n2_aguardando },
-        { label: 'Aguardando Documentação', value: pv_doc_aguard },
-        { label: 'Documentação Completa', value: pv_doc_comp },
-        { label: 'Produção de Inicial', value: jur_producao },
-        { label: 'Revisão de Inicial', value: jur_revisao },
-        { label: 'Processos Protocolados', value: jur_protocolos },
-        { label: 'Estoque de Processos', value: jur_estoque },
-        { label: 'Aguardando Atendimento (Suporte)', value: sup_aguardando },
-        { label: 'Atendimentos Finalizados (Suporte)', value: sup_finalizado },
-        { label: 'Clientes Pendentes Total', value: pv_pendentes },
-        { label: 'Contato Inicial Acordo Pendente', value: fin_acordo_pendente },
-        { label: 'Aguardando Atendimento Financeiro', value: fin_aguardando },
-        { label: 'Custo Aquisição Cliente', value: `R$ ${gestao_cac.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` },
-        { label: 'Custo por Protocolo', value: `R$ ${gestao_custo_prot.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` }
-    ];
+    // Objeto completo de métricas mapeado pelos labels constantes
+    const fullMetricsMap: Record<string, any> = {
+        'Total de Leads': com_leads,
+        'Aguardando Análise': com_analise,
+        'Oportunidade': com_oportunidade,
+        'Contratos Fechados': com_contratos,
+        'N5 Contrato Assinado': com_n5_assinado,
+        'Taxa de Conversão': `${com_taxa}%`,
+        'Taxa de Aproveitamento': `${com_aproveitamento}%`,
+        'Followups Realizados': sumValues(['followups_realizados']),
+        'Reunião Pendente': pv_reuniao_pendente_col,
+        'N3 Reunião Marcada': pv_reuniao_marcada,
+        'N3 Reunião Feita': pv_reuniao_feita,
+        'Aguardando Agendamento': pv_aguardando_agendamento,
+        'N2 Aguardando Agendamento': pv_n2_aguardando,
+        'Aguardando Documentação': pv_doc_aguard,
+        'Documentação Completa': pv_doc_comp,
+        'Produção de Inicial': jur_producao,
+        'Revisão de Inicial': jur_revisao,
+        'Processos Protocolados': jur_protocolos,
+        'Estoque de Processos': jur_estoque,
+        'Aguardando Atendimento (Suporte)': sup_aguardando,
+        'Atendimentos Finalizados (Suporte)': sup_finalizado,
+        'Clientes Pendentes Total': pv_pendentes,
+        'Contato Inicial Acordo Pendente': fin_acordo_pendente,
+        'Aguardando Atendimento Financeiro': fin_aguardando,
+        'Custo Aquisição Cliente': `R$ ${gestao_cac.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`,
+        'Custo por Protocolo': `R$ ${gestao_custo_prot.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`
+    };
 
-    // KPIs Estruturados para aba ESTRATÉGICO
+    // Gera a lista baseada na ordem de ALL_METRIC_LABELS
+    const explicitMetricsList = ALL_METRIC_LABELS.map(label => ({
+        label,
+        value: fullMetricsMap[label]
+    }));
+
     return {
         comercial: { leads: com_leads, analise: com_analise, contratos: com_contratos_total, taxa: com_taxa },
-        juridico: { producao: jur_estoque, protocolos: jur_protocolos, taxaPeriodo: '0.00', vazaoTotal: '0.00' }, // Simplificado para usar os calculados acima
+        juridico: { producao: jur_estoque, protocolos: jur_protocolos, taxaPeriodo: '0.00', vazaoTotal: '0.00' },
         posVenda: { pendentes: pv_pendentes, reuniaoPendente: pv_reuniao_pendente_col + pv_aguardando_agendamento + pv_n2_aguardando, reuniaoMarcada: pv_reuniao_marcada, docAguard: pv_doc_aguard, docComp: pv_doc_comp },
         supFin: { supPendente: sup_aguardando, supFinal: sup_finalizado, finFila: fin_aguardando, finAcordos: fin_acordo_pendente },
         gestao: { cac: gestao_cac, custoProt: gestao_custo_prot, totalCost },
@@ -214,6 +244,18 @@ const Dashboard: React.FC<DashboardProps> = ({
     });
     return Array.from(dailyMap.values());
   }, [stats]);
+
+  // Funções para o Modal de Filtro
+  const toggleMetric = (metric: string) => {
+    setVisibleMetrics(prev => 
+        prev.includes(metric) 
+            ? prev.filter(m => m !== metric)
+            : [...prev, metric]
+    );
+  };
+
+  const selectAllMetrics = () => setVisibleMetrics(ALL_METRIC_LABELS);
+  const deselectAllMetrics = () => setVisibleMetrics([]);
 
   if (isRefreshing && (!metrics || metrics.length === 0)) {
       return (
@@ -260,12 +302,34 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <button onClick={() => setActiveTab('full')} className={`px-5 py-2.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'full' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>MÉTRICAS</button>
              </div>
 
+             {/* BOTÃO DE MÉTRICAS VISÍVEIS - Só aparece na aba 'full' */}
+             {activeTab === 'full' && (
+                <button 
+                    onClick={() => setIsFilterModalOpen(true)}
+                    className="flex items-center gap-2 px-4 py-3 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 rounded-xl transition-all font-bold text-xs uppercase tracking-wider hover:text-indigo-300 hover:border-indigo-500/40"
+                >
+                    <Eye className="w-4 h-4" />
+                    Métricas Visíveis
+                </button>
+             )}
+
              <div className="flex items-center gap-2">
                 <button onClick={onOpenSettings} className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-emerald-500 transition-all shadow-lg"><Settings className="w-5 h-5" /></button>
                 <button onClick={onRefresh} className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-emerald-500 transition-all shadow-lg"><RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} /></button>
              </div>
         </div>
       </header>
+
+      {/* MODAL DE FILTRO */}
+      <MetricsFilterModal 
+        isOpen={isFilterModalOpen}
+        onClose={() => setIsFilterModalOpen(false)}
+        availableMetrics={ALL_METRIC_LABELS}
+        selectedMetrics={visibleMetrics}
+        onToggleMetric={toggleMetric}
+        onSelectAll={selectAllMetrics}
+        onDeselectAll={deselectAllMetrics}
+      />
 
       {showDatePicker && (
         <div className="mb-8 p-6 bg-slate-900 border border-emerald-500/20 rounded-2xl flex flex-wrap items-center gap-6 animate-in slide-in-from-top-4 duration-300 shadow-2xl">
@@ -439,7 +503,9 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 animate-in zoom-in duration-300">
-              {stats.explicitMetricsList.map((item, idx) => (
+              {stats.explicitMetricsList
+                .filter(item => visibleMetrics.includes(item.label))
+                .map((item, idx) => (
                     <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex justify-between items-center group hover:border-emerald-500 transition-all">
                         <div>
                             <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 group-hover:text-emerald-500">{item.label}</div>
