@@ -7,34 +7,57 @@ const TABLES = {
   SETTINGS: 'financial_settings'
 };
 
-const parseFlexibleDate = (dateStr: any): Date | null => {
-  if (!dateStr) return null;
-  try {
-    const clean = String(dateStr).split('_')[0].split('T')[0].split(' ')[0].trim();
-    if (clean.includes('/')) {
-      const [d, m, y] = clean.split('/');
-      return new Date(Number(y), Number(m) - 1, Number(d), 12, 0, 0);
-    }
-    if (clean.includes('-')) {
-      const [y, m, d] = clean.split('-');
-      if (y.length === 4) {
-        return new Date(Number(y), Number(m) - 1, Number(d), 12, 0, 0);
-      } else {
-        return new Date(Number(d), Number(m) - 1, Number(y), 12, 0, 0);
+const parseFlexibleDate = (dateStr: any, fallbackDateStr?: any): Date => {
+  // Tenta parsear a data principal
+  const tryParse = (val: any): Date | null => {
+      if (!val) return null;
+      try {
+        const clean = String(val).split('_')[0].split('T')[0].split(' ')[0].trim();
+        // Formato DD/MM/YYYY
+        if (clean.includes('/')) {
+          const [d, m, y] = clean.split('/');
+          return new Date(Number(y), Number(m) - 1, Number(d), 12, 0, 0);
+        }
+        // Formato YYYY-MM-DD ou DD-MM-YYYY
+        if (clean.includes('-')) {
+          const [y, m, d] = clean.split('-');
+          if (y.length === 4) {
+            return new Date(Number(y), Number(m) - 1, Number(d), 12, 0, 0);
+          } else {
+            return new Date(Number(d), Number(m) - 1, Number(y), 12, 0, 0);
+          }
+        }
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? null : d;
+      } catch (e) {
+        return null;
       }
-    }
-    const d = new Date(dateStr);
-    return isNaN(d.getTime()) ? null : d;
-  } catch (e) {
-    return null;
-  }
+  };
+
+  const primary = tryParse(dateStr);
+  if (primary) return primary;
+
+  const secondary = tryParse(fallbackDateStr);
+  if (secondary) return secondary;
+
+  // Se tudo falhar, retorna data de HOJE para não perder o dado no dashboard
+  // Isso é crucial para dados inseridos manualmente sem data definida
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  return today;
 };
 
 const normalizeLeadValue = (val: any): number => {
   if (val === null || val === undefined || val === "") return 0;
   if (typeof val === 'number') return val;
   const str = String(val).toLowerCase().trim();
-  const positiveValues = ['sim', 's', 'x', 'v', 'verdadeiro', 'true', 'assinado', 'fechado', 'ok', 'concluido', 'yes', '1'];
+  
+  // Lista expandida para capturar status descritivos além de booleanos simples
+  const positiveValues = [
+      'sim', 's', 'x', 'v', 'verdadeiro', 'true', 'assinado', 'fechado', 'ok', 'concluido', 'yes', '1',
+      'pendente', 'em andamento', 'fila', 'aguardando', 'analise', 'acordo', 'negociacao', 'finalizado', 'resolvido', 'protocolado', 'realizado'
+  ];
+  
   if (positiveValues.includes(str)) return 1;
   const parsed = parseFloat(str);
   return isNaN(parsed) ? 0 : parsed;
@@ -47,7 +70,9 @@ const getBaseUrl = (configUrl: string) => {
 
 const makeRequest = async (config: SupabaseConfig, table: string) => {
     const baseUrl = getBaseUrl(config.url);
-    const endpoint = `${baseUrl}/rest/v1/${table}?select=*&order=data.asc`;
+    // Alterado para order=data.desc para pegar os dados mais recentes primeiro
+    // Adicionado limit=3000 para garantir maior cobertura de histórico
+    const endpoint = `${baseUrl}/rest/v1/${table}?select=*&order=data.desc&limit=3000`;
     
     const response = await fetch(endpoint, {
       method: 'GET',
@@ -87,13 +112,14 @@ export const fetchDashboardMetrics = async (
         const formatted: any = {};
         Object.keys(record).forEach(key => {
             const rawVal = record[key];
-            if (['data', 'id', 'telefone', 'nome', 'email', 'origem', 'status'].includes(key)) {
+            if (['data', 'id', 'telefone', 'nome', 'email', 'origem', 'status', 'created_at'].includes(key)) {
                 formatted[key] = rawVal;
             } else {
                 formatted[key] = normalizeLeadValue(rawVal);
             }
         });
-        formatted._parsedDate = parseFlexibleDate(record.data);
+        // Passa created_at como fallback caso 'data' seja nulo
+        formatted._parsedDate = parseFlexibleDate(record.data, record.created_at);
         return formatted as DashboardMetric;
     });
 

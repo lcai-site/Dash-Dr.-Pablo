@@ -43,18 +43,26 @@ const Dashboard: React.FC<DashboardProps> = ({
     const rangeEnd = new Date(currentRange.end);
     rangeEnd.setHours(23,59,59,999);
 
-    const filteredMetrics = metrics.filter(m => {
-        const d = (m as any)._parsedDate;
-        if (!d) return false;
-        const checkDate = new Date(d);
-        return checkDate >= rangeStart && checkDate <= rangeEnd;
-    });
+    // Filtra e ORDENA cronologicamente (importante pois a API agora retorna DESC)
+    const filteredMetrics = metrics
+        .filter(m => {
+            const d = (m as any)._parsedDate;
+            if (!d) return false;
+            const checkDate = new Date(d);
+            return checkDate >= rangeStart && checkDate <= rangeEnd;
+        })
+        .sort((a, b) => {
+            const dateA = (a as any)._parsedDate?.getTime() || 0;
+            const dateB = (b as any)._parsedDate?.getTime() || 0;
+            return dateA - dateB;
+        });
 
+    // Soma valores de colunas específicas com trim nas chaves para evitar erros de espaço
     const sumValues = (searchKeys: string[]): number => {
-        const lowerSearchKeys = searchKeys.map(k => k.toLowerCase());
+        const lowerSearchKeys = searchKeys.map(k => k.toLowerCase().trim());
         return filteredMetrics.reduce((acc, record) => {
             const recordKeys = Object.keys(record);
-            const actualKey = recordKeys.find(rk => lowerSearchKeys.includes(rk.toLowerCase()));
+            const actualKey = recordKeys.find(rk => lowerSearchKeys.includes(rk.toLowerCase().trim()));
             if (actualKey) {
                 const val = Number(record[actualKey]);
                 return acc + (isNaN(val) ? 0 : val);
@@ -63,43 +71,61 @@ const Dashboard: React.FC<DashboardProps> = ({
         }, 0);
     };
 
-    // --- COMERCIAL ---
+    // Fallback: Conta registros baseados em texto na coluna 'status' (para quando não há colunas booleanas)
+    const countByStatus = (keywords: string[]): number => {
+        return filteredMetrics.filter(record => {
+            const statusVal = String(record['status'] || '').toLowerCase();
+            return keywords.some(k => statusVal.includes(k.toLowerCase()));
+        }).length;
+    };
+
+    // Helper que tenta somar colunas, se der zero, tenta contar pelo status
+    const smartCount = (cols: string[], statusKeywords: string[]): number => {
+        const colSum = sumValues(cols);
+        if (colSum > 0) return colSum;
+        return countByStatus(statusKeywords);
+    };
+
+    // --- CÁLCULOS ESTRUTURAIS ---
+    
+    // Comercial
     const com_leads = filteredMetrics.length;
     const com_analise = sumValues(['aguardando_analise']);
-    const com_followups = sumValues(['followups_realizados']);
-    const com_contratos = sumValues(['contratos_fechados', 'n5_contrato_assinado']);
+    const com_oportunidade = sumValues(['oportunidade']);
+    const com_contratos = sumValues(['contratos_fechados']);
+    const com_n5_assinado = sumValues(['n5_contrato_assinado']);
+    const com_contratos_total = com_contratos + com_n5_assinado; // Para KPI Card
     const com_taxa = com_leads > 0 ? ((com_contratos / com_leads) * 100).toFixed(2) : '0.00';
-
-    // --- JURÍDICO ---
-    const jur_producao = sumValues(['producao_de_inicial', 'revisao_de_inicial']);
-    const jur_protocolos = sumValues(['processos_protocolados']);
     
-    const jur_taxa_calc = jur_producao > 0 
-        ? ((jur_protocolos / jur_producao) * 100)
-        : (jur_protocolos > 0 ? 100.00 : 0.00);
-    
-    const jur_taxa_periodo = Math.min(jur_taxa_calc, 100).toFixed(2);
-    const jur_vazao_total = jur_taxa_calc.toFixed(2);
+    // Taxa de Aproveitamento: Contratos / Aguardando Análise (ou Oportunidade)
+    const baseAproveitamento = com_analise > 0 ? com_analise : (com_oportunidade > 0 ? com_oportunidade : 1);
+    const com_aproveitamento = ((com_contratos / baseAproveitamento) * 100).toFixed(2);
 
-    // --- PÓS-VENDA ---
-    const pv_pendentes = sumValues(['clientes_pendentes_total', 'n1_onboard_pendente']);
-    const pv_onboard = sumValues(['onboard_realizado']);
-    const pv_agendamento = sumValues(['aguardando_agendamento', 'n2_aguardando_agendamento']);
-    const pv_doc_aguard = sumValues(['aguardando_documentacao', 'n4_aguardando_documentacao']);
+    // Pós-Venda
+    const pv_pendentes = sumValues(['clientes_pendentes_total']);
+    const pv_reuniao_pendente_col = sumValues(['reuniao_pendente']);
+    const pv_reuniao_marcada = sumValues(['n3_reuniao_marcada']);
+    const pv_reuniao_feita = sumValues(['n3_reuniao_feita']);
+    const pv_aguardando_agendamento = sumValues(['aguardando_agendamento']);
+    const pv_n2_aguardando = sumValues(['n2_aguardando_agendamento']);
+    const pv_doc_aguard = sumValues(['aguardando_documentacao']);
     const pv_doc_comp = sumValues(['documentacao_completa']);
 
-    // --- SUPORTE (Mapeamento Conforme Solicitado) ---
-    const sup_aguard = sumValues(['contato_inicial_acordo_pendente']); // Métrica Pendente
-    const sup_final = sumValues(['atendimentos_finalizados']);       // Métrica Finalizados
+    // Jurídico
+    const jur_producao = sumValues(['producao_de_inicial']);
+    const jur_revisao = sumValues(['revisao_de_inicial']);
+    const jur_protocolos = sumValues(['processos_protocolados']);
+    const jur_estoque = jur_producao + jur_revisao; // Estoque lógico
 
-    // --- FINANCEIRO (Mapeamento Conforme Solicitado) ---
-    const fin_aguard = sumValues(['aguardando_atendimento_financeiro']); // Fila
-    const fin_acordo = sumValues(['contato_inicial_acordo_pendente']);     // Acordos
+    // Suporte & Financeiro
+    const sup_aguardando = smartCount(['suporte_aguardando_atendimento'], ['suporte pendente']);
+    const sup_finalizado = smartCount(['suporte_atendimentos_finalizados', 'atendimentos_finalizados'], ['suporte finalizado']);
+    const fin_acordo_pendente = smartCount(['contato_inicial_acordo_pendente'], ['acordo pendente']);
+    const fin_aguardando = smartCount(['aguardando_atendimento_financeiro', 'financeiro_aguardando_atendimento'], ['financeiro fila']);
 
-    // --- GESTÃO E CUSTOS (CALCULO CALENDÁRIO PRO-RATA) ---
+    // --- GESTÃO E CUSTOS ---
     const calculateTotalDailyCostForDate = (targetDateStr: string) => {
       return investments.reduce((total, inv) => {
-        // Verifica se a data atual do loop está entre o início e fim do investimento
         if (targetDateStr >= inv.data_inicio && targetDateStr <= inv.data_fim) {
             const start = new Date(inv.data_inicio + 'T12:00:00');
             const end = new Date(inv.data_fim + 'T12:00:00');
@@ -110,7 +136,6 @@ const Dashboard: React.FC<DashboardProps> = ({
       }, 0);
     };
 
-    // Percorremos todos os dias do período selecionado no calendário
     let totalCost = 0;
     const dayIterator = new Date(rangeStart);
     while (dayIterator <= rangeEnd) {
@@ -122,27 +147,44 @@ const Dashboard: React.FC<DashboardProps> = ({
     const gestao_cac = com_contratos > 0 ? totalCost / com_contratos : 0;
     const gestao_custo_prot = jur_protocolos > 0 ? totalCost / jur_protocolos : 0;
 
-    const numericKeys = new Set<string>();
-    metrics.forEach(m => Object.keys(m).forEach(k => {
-        if (!['data', 'id', 'telefone', 'nome', 'email', 'origem', 'status', '_parsedDate'].includes(k.toLowerCase()) && typeof m[k] === 'number') {
-            numericKeys.add(k);
-        }
-    }));
+    // --- LISTA FIXA DE MÉTRICAS (VISÃO FULL - ORDEM SOLICITADA) ---
+    const explicitMetricsList = [
+        { label: 'Total de Leads', value: com_leads },
+        { label: 'Aguardando Análise', value: com_analise },
+        { label: 'Oportunidade', value: com_oportunidade },
+        { label: 'Contratos Fechados', value: com_contratos },
+        { label: 'N5 Contrato Assinado', value: com_n5_assinado },
+        { label: 'Taxa de Conversão', value: `${com_taxa}%` },
+        { label: 'Taxa de Aproveitamento', value: `${com_aproveitamento}%` },
+        { label: 'Followups Realizados', value: sumValues(['followups_realizados']) },
+        { label: 'Reunião Pendente', value: pv_reuniao_pendente_col },
+        { label: 'N3 Reunião Marcada', value: pv_reuniao_marcada },
+        { label: 'N3 Reunião Feita', value: pv_reuniao_feita },
+        { label: 'Aguardando Agendamento', value: pv_aguardando_agendamento },
+        { label: 'N2 Aguardando Agendamento', value: pv_n2_aguardando },
+        { label: 'Aguardando Documentação', value: pv_doc_aguard },
+        { label: 'Documentação Completa', value: pv_doc_comp },
+        { label: 'Produção de Inicial', value: jur_producao },
+        { label: 'Revisão de Inicial', value: jur_revisao },
+        { label: 'Processos Protocolados', value: jur_protocolos },
+        { label: 'Estoque de Processos', value: jur_estoque },
+        { label: 'Aguardando Atendimento (Suporte)', value: sup_aguardando },
+        { label: 'Atendimentos Finalizados (Suporte)', value: sup_finalizado },
+        { label: 'Clientes Pendentes Total', value: pv_pendentes },
+        { label: 'Contato Inicial Acordo Pendente', value: fin_acordo_pendente },
+        { label: 'Aguardando Atendimento Financeiro', value: fin_aguardando },
+        { label: 'Custo Aquisição Cliente', value: `R$ ${gestao_cac.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` },
+        { label: 'Custo por Protocolo', value: `R$ ${gestao_custo_prot.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` }
+    ];
 
-    const dynamicStats = Array.from(numericKeys).sort().map(key => ({
-        key,
-        label: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-        total: sumValues([key]),
-        avg: (sumValues([key]) / (filteredMetrics.length || 1)).toFixed(2)
-    }));
-
+    // KPIs Estruturados para aba ESTRATÉGICO
     return {
-        comercial: { leads: com_leads, analise: com_analise, follow: com_followups, contratos: com_contratos, taxa: com_taxa },
-        juridico: { producao: jur_producao, protocolos: jur_protocolos, taxaPeriodo: jur_taxa_periodo, vazaoTotal: jur_vazao_total },
-        posVenda: { pendentes: pv_pendentes, onboard: pv_onboard, agendamento: pv_agendamento, docAguard: pv_doc_aguard, docComp: pv_doc_comp },
-        supFin: { supAguard: sup_aguard, supFinal: sup_final, finAguard: fin_aguard, finAcordo: fin_acordo },
+        comercial: { leads: com_leads, analise: com_analise, contratos: com_contratos_total, taxa: com_taxa },
+        juridico: { producao: jur_estoque, protocolos: jur_protocolos, taxaPeriodo: '0.00', vazaoTotal: '0.00' }, // Simplificado para usar os calculados acima
+        posVenda: { pendentes: pv_pendentes, reuniaoPendente: pv_reuniao_pendente_col + pv_aguardando_agendamento + pv_n2_aguardando, reuniaoMarcada: pv_reuniao_marcada, docAguard: pv_doc_aguard, docComp: pv_doc_comp },
+        supFin: { supPendente: sup_aguardando, supFinal: sup_finalizado, finFila: fin_aguardando, finAcordos: fin_acordo_pendente },
         gestao: { cac: gestao_cac, custoProt: gestao_custo_prot, totalCost },
-        dynamicStats,
+        explicitMetricsList,
         filteredMetrics
     };
   }, [metrics, currentRange, investments]);
@@ -248,8 +290,9 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       {stats ? (
         activeTab === 'strategic' ? (
-          <div className="space-y-12 animate-in fade-in duration-500">
+          <div className="space-y-10 animate-in fade-in duration-500">
               
+              {/* 1. COMERCIAL */}
               <section>
                   <div className="flex items-center gap-3 mb-6">
                       <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><Users className="w-4 h-4 text-blue-500" /> COMERCIAL</h3>
@@ -257,12 +300,28 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                       <KPICard title="TOTAL DE LEADS" value={stats.comercial.leads} icon={<Users />} colorClass="text-slate-400" />
-                      <KPICard title="AGUARD. ANÁLISE" value={stats.comercial.analise} icon={<Clock />} colorClass="text-blue-400" />
+                      <KPICard title="OPORTUNIDADES" value={stats.comercial.analise} icon={<Clock />} colorClass="text-blue-400" />
                       <KPICard title="CONTRATOS" value={stats.comercial.contratos} icon={<FileCheck />} colorClass="text-emerald-400" subValue="Soma no período" />
                       <KPICard title="TAXA CONVERSÃO" value={`${stats.comercial.taxa}%`} icon={<Target />} colorClass="text-purple-400" />
                   </div>
               </section>
 
+              {/* 2. PÓS-VENDA */}
+              <section>
+                  <div className="flex items-center gap-3 mb-6">
+                      <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-indigo-500" /> PÓS-VENDA</h3>
+                      <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                      <KPICard title="PENDENTES" value={stats.posVenda.pendentes} icon={<Users />} colorClass="text-slate-400" />
+                      <KPICard title="REUNIÃO PENDENTE" value={stats.posVenda.reuniaoPendente} icon={<Clock />} colorClass="text-orange-400" />
+                      <KPICard title="REUNIÃO MARCADA" value={stats.posVenda.reuniaoMarcada} icon={<Calendar />} colorClass="text-emerald-400" />
+                      <KPICard title="DOC. PENDENTE" value={stats.posVenda.docAguard} icon={<FileText />} colorClass="text-blue-400" />
+                      <KPICard title="DOC. COMPLETA" value={stats.posVenda.docComp} icon={<CheckCircle />} colorClass="text-indigo-400" />
+                  </div>
+              </section>
+
+              {/* 3. JURÍDICO */}
               <section>
                   <div className="flex items-center gap-3 mb-6">
                       <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><Briefcase className="w-4 h-4 text-amber-500" /> JURÍDICO</h3>
@@ -271,26 +330,56 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                       <KPICard title="PRODUÇÃO INICIAL" value={stats.juridico.producao} icon={<Clock />} colorClass="text-amber-400" />
                       <KPICard title="PROTOCOLADOS" value={stats.juridico.protocolos} icon={<Archive />} colorClass="text-emerald-400" />
-                      <KPICard title="EFICIÊNCIA PERÍODO" value={`${stats.juridico.taxaPeriodo}%`} icon={<TrendingUp />} colorClass="text-blue-400" subValue="Conversão do trabalho atual" />
-                      <KPICard title="VAZÃO DE ESTOQUE" value={`${stats.juridico.vazaoTotal}%`} icon={<Target />} colorClass={Number(stats.juridico.vazaoTotal) > 100 ? "text-emerald-400" : "text-purple-400"} subValue={Number(stats.juridico.vazaoTotal) > 100 ? "Limpando Backlog" : "Vazão vs Produção"} />
+                      <KPICard title="EFICIÊNCIA PERÍODO" value={`${(Number(stats.juridico.protocolos) > 0 ? (Number(stats.juridico.protocolos) / Math.max(1, Number(stats.juridico.producao))) * 100 : 0).toFixed(2)}%`} icon={<TrendingUp />} colorClass="text-blue-400" subValue="Conversão do trabalho atual" />
+                      <KPICard title="VAZÃO DE ESTOQUE" value={`${(Number(stats.juridico.producao) > 0 ? (Number(stats.juridico.protocolos) / Number(stats.juridico.producao)) * 100 : 0).toFixed(2)}`} icon={<Target />} colorClass="text-purple-400" subValue="Vazão vs Produção" />
                   </div>
               </section>
 
-              <section>
-                  <div className="flex items-center gap-3 mb-6">
-                      <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-indigo-500" /> PÓS-VENDA</h3>
-                      <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                      <KPICard title="PENDENTES" value={stats.posVenda.pendentes} icon={<Users />} colorClass="text-slate-400" />
-                      <KPICard title="ONBOARD FEITO" value={stats.posVenda.onboard} icon={<CheckCircle />} colorClass="text-emerald-400" />
-                      <KPICard title="AGENDAMENTO" value={stats.posVenda.agendamento} icon={<Calendar />} colorClass="text-orange-400" />
-                      <KPICard title="DOC. PENDENTE" value={stats.posVenda.docAguard} icon={<FileText />} colorClass="text-blue-400" />
-                      <KPICard title="DOC. COMPLETA" value={stats.posVenda.docComp} icon={<CheckCircle />} colorClass="text-indigo-400" />
-                  </div>
-              </section>
+              {/* 4. SUPORTE & 5. FINANCEIRO */}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                  {/* SUPORTE */}
+                  <section>
+                      <div className="flex items-center gap-3 mb-6">
+                          <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><Headphones className="w-4 h-4 text-blue-400" /> SUPORTE</h3>
+                          <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
+                      </div>
+                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                          <div className="grid grid-cols-2 gap-3">
+                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800">
+                                  <div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Pendente</div>
+                                  <div className="text-2xl font-black text-white">{stats.supFin.supPendente}</div>
+                              </div>
+                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800">
+                                  <div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Finalizados</div>
+                                  <div className="text-2xl font-black text-emerald-500">{stats.supFin.supFinal}</div>
+                              </div>
+                          </div>
+                      </div>
+                  </section>
 
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  {/* FINANCEIRO */}
+                  <section>
+                      <div className="flex items-center gap-3 mb-6">
+                          <h3 className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"><Landmark className="w-4 h-4 text-orange-400" /> FINANCEIRO</h3>
+                          <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
+                      </div>
+                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                          <div className="grid grid-cols-2 gap-3">
+                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800">
+                                  <div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Fila</div>
+                                  <div className="text-2xl font-black text-white">{stats.supFin.finFila}</div>
+                              </div>
+                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800">
+                                  <div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Acordos</div>
+                                  <div className="text-2xl font-black text-orange-400">{stats.supFin.finAcordos}</div>
+                              </div>
+                          </div>
+                      </div>
+                  </section>
+              </div>
+
+              {/* GESTÃO E CUSTOS */}
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 mt-4">
                   <div className="xl:col-span-2 space-y-8">
                       <section className="relative">
                           <div className="flex items-center justify-between mb-6">
@@ -341,35 +430,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
 
                   <div className="space-y-6">
-                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-                          <div className="absolute top-0 right-0 p-4 opacity-5"><Headphones className="w-12 h-12 text-blue-400" /></div>
-                          <h3 className="text-slate-500 text-[9px] font-black uppercase mb-4 tracking-widest flex items-center gap-2"><Headphones className="w-3 h-3 text-blue-400" /> SUPORTE</h3>
-                          <div className="grid grid-cols-2 gap-3">
-                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800">
-                                  <div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Pendente</div>
-                                  <div className="text-2xl font-black text-white">{stats.supFin.supAguard}</div>
-                              </div>
-                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800">
-                                  <div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Finalizados</div>
-                                  <div className="text-2xl font-black text-emerald-500">{stats.supFin.supFinal}</div>
-                              </div>
-                          </div>
-                      </div>
-                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-                          <div className="absolute top-0 right-0 p-4 opacity-5"><Landmark className="w-12 h-12 text-orange-400" /></div>
-                          <h3 className="text-slate-500 text-[9px] font-black uppercase mb-4 tracking-widest flex items-center gap-2"><Landmark className="w-3 h-3 text-orange-400" /> FINANCEIRO</h3>
-                          <div className="grid grid-cols-2 gap-3">
-                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800">
-                                  <div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Fila</div>
-                                  <div className="text-2xl font-black text-white">{stats.supFin.finAguard}</div>
-                              </div>
-                              <div className="bg-slate-950 p-4 rounded-xl text-center border border-slate-800">
-                                  <div className="text-[8px] font-bold text-slate-500 uppercase mb-1">Acordos</div>
-                                  <div className="text-2xl font-black text-orange-400">{stats.supFin.finAcordo}</div>
-                              </div>
-                          </div>
-                      </div>
-                      <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl flex items-start gap-3">
+                      <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl flex items-start gap-3 mt-10">
                           <Info className="w-5 h-5 text-emerald-500 flex-shrink-0" />
                           <p className="text-[9px] text-slate-400 leading-relaxed uppercase font-bold tracking-tight">Nota: O investimento é rateado de forma pro-rata entre os dias do calendário do período selecionado que coincidem com o intervalo do investimento cadastrado.</p>
                       </div>
@@ -378,19 +439,14 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 animate-in zoom-in duration-300">
-              {stats.dynamicStats.length > 0 ? (
-                stats.dynamicStats.map((item) => (
-                    <div key={item.key} className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex justify-between items-center group hover:border-emerald-500 transition-all">
-                        <div><div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 group-hover:text-emerald-500">{item.label}</div><div className="text-2xl font-black text-white">{item.total}</div></div>
-                        <div className="text-right"><div className="text-[9px] font-bold text-slate-700 uppercase">Média</div><div className="text-xs font-black text-emerald-500">{item.avg}</div></div>
+              {stats.explicitMetricsList.map((item, idx) => (
+                    <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex justify-between items-center group hover:border-emerald-500 transition-all">
+                        <div>
+                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 group-hover:text-emerald-500">{item.label}</div>
+                            <div className="text-2xl font-black text-white">{item.value}</div>
+                        </div>
                     </div>
-                ))
-              ) : (
-                <div className="col-span-full py-20 text-center bg-slate-900/50 border border-dashed border-slate-800 rounded-3xl">
-                   <AlertCircle className="w-8 h-8 text-slate-700 mx-auto mb-3" />
-                   <p className="text-slate-500 font-bold uppercase text-xs tracking-widest">Nenhuma coluna numérica detectada.</p>
-                </div>
-              )}
+              ))}
           </div>
         )
       ) : (
