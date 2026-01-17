@@ -209,7 +209,13 @@ const Dashboard: React.FC<DashboardProps> = ({
     }));
 
     return {
-        comercial: { leads: com_leads, analise: com_analise, contratos: com_contratos_total, taxa: com_taxa },
+        comercial: { 
+          leads: com_leads, 
+          analise: com_analise, 
+          oportunidade: com_oportunidade, // Adicionado aqui para o card estratégico
+          contratos: com_contratos_total, 
+          taxa: com_taxa 
+        },
         juridico: { producao: jur_estoque, protocolos: jur_protocolos, taxaPeriodo: '0.00', vazaoTotal: '0.00' },
         posVenda: { pendentes: pv_pendentes, reuniaoPendente: pv_reuniao_pendente_col + pv_aguardando_agendamento + pv_n2_aguardando, reuniaoMarcada: pv_reuniao_marcada, docAguard: pv_doc_aguard, docComp: pv_doc_comp },
         supFin: { supPendente: sup_aguardando, supFinal: sup_finalizado, finFila: fin_aguardando, finAcordos: fin_acordo_pendente },
@@ -364,7 +370,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                       <KPICard title="TOTAL DE LEADS" value={stats.comercial.leads} icon={<Users />} colorClass="text-slate-400" />
-                      <KPICard title="OPORTUNIDADES" value={stats.comercial.analise} icon={<Clock />} colorClass="text-blue-400" />
+                      <KPICard title="OPORTUNIDADES" value={stats.comercial.oportunidade} icon={<Clock />} colorClass="text-blue-400" />
                       <KPICard title="CONTRATOS" value={stats.comercial.contratos} icon={<FileCheck />} colorClass="text-emerald-400" subValue="Soma no período" />
                       <KPICard title="TAXA CONVERSÃO" value={`${stats.comercial.taxa}%`} icon={<Target />} colorClass="text-purple-400" />
                   </div>
